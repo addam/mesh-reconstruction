@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <iostream>
+#include <set>
 
 using namespace cv;
 using namespace std;
@@ -70,13 +71,13 @@ int main(int argc, char** argv) {
 		return 1;
 	FileNode nodeClip = fs["clip"];
 	int width, height;
-	float center_x, center_y;
+	float centerX, centerY;
 	string clipPath;
 	nodeClip["width"] >> width;
 	nodeClip["height"] >> height;
 	nodeClip["path"] >> clipPath;
-	nodeClip["center-x"] >> center_x;
-	nodeClip["center-y"] >> center_y;
+	nodeClip["center-x"] >> centerX;
+	nodeClip["center-y"] >> centerY;
 	
 	FileNode camera = fs["camera"];
 	Mat projection;
@@ -84,21 +85,36 @@ int main(int argc, char** argv) {
 	//cout << projection<< endl;
 	
 	FileNode tracks = fs["tracks"];
-	Mat bundle;
-	tracks[0]["bundle"] >> bundle;
+	Mat bundle, bundles(0, 4, CV_32FC1);
+	int bundleCount = 0;
+	vector< set<int> > bundlesEnabled;
+	for (FileNodeIterator it = tracks.begin(); it != tracks.end(); it++){
+		(*it)["bundle"] >> bundle;
+		vector<int> enabledFrames;
+		(*it)["frames-enabled"] >> enabledFrames;
+		set<int> *enabledFramesSet = new set<int>(enabledFrames.begin(), enabledFrames.end());
+		bundlesEnabled.push_back(*enabledFramesSet);
+		bundle = bundle.t();
+		bundles.push_back(bundle);
+		bundleCount += 1;
+	}
+	bundles = bundles.t();
+	cout << "Loaded "<< bundleCount <<" bundles."<<endl;
 	VideoCapture clip(clipPath);
 	int delay = 1000/clip.get(CV_CAP_PROP_FPS), frameCount = clip.get(CV_CAP_PROP_FRAME_COUNT);
 	Mat frame;
 	namedWindow(windowName, CV_WINDOW_AUTOSIZE);
-	FileNodeIterator it = camera.begin();
-	cout << bundle << endl;
+	FileNodeIterator cit=camera.begin();
 	for (int i=1; i<frameCount; i++) {
 		clip >> frame;
-		(*it) >> projection;
-		Vec4f projected = Mat_<Vec4f>(projection*bundle);
-		circle(frame, Point(projected[0]*width*0.5/projected[3] + center_x, height - projected[1]*height*0.5/projected[3] - center_y), 3, Scalar(0,255,0), -1, 8);
+		(*cit) >> projection;
+		Mat projected = projection*bundles;
+		for (int col=0; col<bundleCount; col++) {
+			if (bundlesEnabled[col].count(i))
+				circle(frame, Point(projected.at<float>(0,col)*width*0.5/projected.at<float>(3,col) + centerX, height - projected.at<float>(1,col)*height*0.5/projected.at<float>(3,col) - centerY), 3, Scalar(0,255,0), -1, 8);
+		}
 		imshow(windowName, frame);
-		it ++;
+		cit ++;
 		char c = cvWaitKey(delay);
 	  if (c == 27)
 		  break;
