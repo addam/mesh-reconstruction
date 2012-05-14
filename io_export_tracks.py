@@ -1,6 +1,6 @@
-import bpy
+import bpy, mathutils
 from bpy_extras.io_utils import ExportHelper
-from bpy.props import StringProperty, BoolProperty, EnumProperty
+from bpy.props import StringProperty, BoolProperty
 from bpy.types import Operator
 from itertools import chain
 
@@ -17,19 +17,41 @@ bl_info = {
     "category": "Import-Export"}
 
 
+def PerspectiveMatrix(fovx, aspect, near=0.1, far=100.0):
+    near = 0.5
+    right = fovx * 0.5 * near
+    left = -right
+    top = float(right / aspect)
+    bottom = -top
+    return mathutils.Matrix([
+      [(2.0 * near)/float(right - left), 0.0, float(right + left)/float(right - left), 0.0],
+      [0.0, (2.0 * near)/float(top - bottom), float(top + bottom)/float(top - bottom), 0.0],
+      [0.0, 0.0, -float(far + near)/float(far - near), -(2.0 * far * near)/float(far - near)],
+      [0.0, 0.0, -1.0, 0.0]])
+
 def write_tracks(context, filepath, include_hidden):
 	f = open(filepath, 'w', encoding='utf-8')
 	f.write("%YAML:1.0\n")
 	
 	clip = context.scene.active_clip
 	tr = clip.tracking
+	fov = tr.camera.sensor_width/tr.camera.focal_length
 	f.write("clip:\n"
 					" path: {path}\n"
 					" width: {width}\n"
-					" height: {height}\n".format(
+					" height: {height}\n"
+					" fov: {fov}\n"
+					" distortion: {distortion}\n"
+					" center-x: {center_x}\n"
+					" center-y: {center_y}\n".format(
 					path=bpy.path.abspath(clip.filepath),
 					width=clip.size[0],
-					height=clip.size[1]))
+					height=clip.size[1],
+					fov=fov,
+					distortion=[tr.camera.k1, tr.camera.k2, tr.camera.k3],
+					center_x=tr.camera.principal[0],
+					center_y=tr.camera.principal[1]))
+	persp = PerspectiveMatrix(fovx=fov, aspect=clip.size[0]/clip.size[1])
 	f.write("camera:\n")
 	for camera in tr.reconstruction.cameras:
 		f.write(" frame-{frame}: !!opencv-matrix\n"
@@ -38,7 +60,8 @@ def write_tracks(context, filepath, include_hidden):
 	          "  dt: f\n"
 	          "  data: [ {data}]\n".format(
 	          frame=camera.frame,
-	          data=", ".join(str(val) for val in chain(*camera.matrix))))
+	          data=", ".join(str(val) for val in chain(*(persp*camera.matrix.inverted())))
+	         ))
 			#camera.average_error, frame, matrix
 	f.write("tracks:\n")
 	for track in tr.tracks:
