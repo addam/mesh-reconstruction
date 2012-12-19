@@ -1,11 +1,22 @@
+#ifndef ALPHA_SHAPES_CPP
+#define ALPHA_SHAPES_CPP
+
 #include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
 #include <CGAL/Delaunay_triangulation_3.h>
 #include <CGAL/Alpha_shape_3.h>
-#include <CGAL/Polyhedron_3.h>
 
-#include <fstream>
-#include <list>
+#include <opencv2/core/core.hpp>
+
+#include <vector>
 #include <map>
+
+	#ifndef TEST_BUILD
+	#include "recon.hpp"
+	#else
+	typedef cv::Mat Mat;
+	#include <iostream>
+	#include <fstream>
+	#endif
 
 typedef CGAL::Exact_predicates_inexact_constructions_kernel Gt;
 
@@ -15,57 +26,67 @@ typedef CGAL::Triangulation_data_structure_3<Vb,Fb>  Tds;
 typedef CGAL::Delaunay_triangulation_3<Gt,Tds>       Triangulation_3;
 typedef CGAL::Alpha_shape_3<Triangulation_3>      Alpha_shape_3;
 
-typedef CGAL::Polyhedron_3<Gt> Polyhedron_3;
-typedef Alpha_shape_3::Facet  Facet;
+typedef Alpha_shape_3::Facet Facet;
 typedef Alpha_shape_3::Cell_handle Cell_handle;
 typedef Alpha_shape_3::Cell Cell;
-typedef Gt::Point_3                                  Point;
-typedef Alpha_shape_3::Alpha_iterator             Alpha_iterator;
+typedef Gt::Point_3 Point;
+typedef Alpha_shape_3::Alpha_iterator Alpha_iterator;
 
-int main()
+Mat alphaShapeIndices(Mat points)
 {
-  std::list<Point> lp;
-  std::map<Point, int> vertex_indices;
-
-  //read input
-  std::ifstream is("./bunny_1000");
-  std::ofstream os("./bunny_alpha");
-  int n;
-  is >> n;
-  std::cout << "Reading " << n << " points " << std::endl;
-  Point p;
-  for(int i=1; i <= n; i ++) {
-    is >> p;
-    os << "v " << p << std::endl;
-    vertex_indices[p] = i;
-    lp.push_back(p);
-  }
-
-  // compute alpha shape
+	std::vector<Point> lp;
+	std::map<Point, int> vertex_indices;
+	for (int i = 0; i < points.rows; i++) {
+		const float* cvPoint = points.ptr<float>(i);
+		Point p(cvPoint[0], cvPoint[1], cvPoint[2]);
+		vertex_indices[p] = i;
+		lp.push_back(p);
+	}
   Alpha_shape_3 as(lp.begin(),lp.end());
-  std::cout << "Alpha shape computed in REGULARIZED mode by default" << std::endl;
 
-  // find optimal alpha value
   Alpha_iterator opt = as.find_optimal_alpha(1);
-  std::cout << "Optimal alpha value to get one connected component is " << *opt << std::endl;
   as.set_alpha(*opt);
   assert(as.number_of_solid_components() == 1);
-  
-  std::list<Facet> facets;
+
+  std::vector<Facet> facets;
   as.get_alpha_shape_facets(back_inserter(facets), Alpha_shape_3::REGULAR);
   as.get_alpha_shape_facets(back_inserter(facets), Alpha_shape_3::SINGULAR);
-  for (std::list<Facet>::iterator it = facets.begin(); it != facets.end(); it ++){
-		Facet facet = *it;
-		Cell_handle cellh = facet.first;
-		Cell cell = *cellh;
-		int vertex_excluded = facet.second;
-		os << "f ";
-		for (char i = 0; i < 4; i++){
-			if (i != vertex_excluded)
-				os << vertex_indices[cell.vertex(i)->point()] << " ";
+  Mat result(facets.size(), 3, CV_32SC1);
+  for (int i=0; i < facets.size(); i++) {
+		Cell cell = *(facets[i].first);
+		int vertex_excluded = facets[i].second;
+		// TODO: is it possible to have the normal right away correct?
+		int32_t* outfacet = result.ptr<int32_t>(i);
+		for (char j = vertex_excluded + 1; j < vertex_excluded + 4; j++){
+			outfacet[j%3] = vertex_indices[cell.vertex(j%4)->point()];
 		}
-		os << std::endl;
+	}
+	return result;
+}
+
+#ifdef TEST_BUILD
+int main()
+{
+	//read input
+	std::ifstream is("shit/bunny_1000");
+	std::ofstream os("shit/bunny_alpha");
+	int n;
+	is >> n;
+	std::cout << "Reading " << n << " points " << std::endl;
+	Mat points(0, 3, CV_32FC1);
+	cv::Point3f point;
+	for(int i=1; i <= n; i ++) {
+		is >> point.x >> point.y >> point.z;
+		os << "v " << point.x << ' ' << point.y << ' ' << point.z << std::endl;
+		points.push_back(point);
+	}
+	is.close();
+	Mat alphaShape = alphaShapeIndices(points);
+	for (int i=0; i < alphaShape.rows; i++){
+		const int32_t* row = alphaShape.ptr<int32_t>(i);
+		os << "f " << row[0]+1 << ' ' << row[1]+1 << ' ' << row[2]+1 << std::endl;
 	}
 	os.close();
-  return 0;
 }
+#endif
+#endif

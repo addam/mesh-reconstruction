@@ -1,59 +1,32 @@
-// Include standard headers
+#ifndef RENDER_GLX_CPP
+#define RENDER_GLX_CPP
+
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <string>
-#include <vector>
 #include <iostream>
-#include <fstream>
-#include <algorithm>
-using namespace std;
 
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <GL/glew.h>
 #include <GL/glx.h>
+#include <opencv2/core/core.hpp>
+#include <opencv2/highgui/highgui.hpp>
 
 //sets the variables vertexShaderSources, fragmentShaderSources
-#include "shaders.h"
+#include "shaders.hpp"
+#include "recon.hpp"
 
 #define GLX_CONTEXT_MAJOR_VERSION_ARB		0x2091
 #define GLX_CONTEXT_MINOR_VERSION_ARB		0x2092
-typedef GLXContext (*CREATECTXPROC)(Display*, GLXFBConfig, GLXContext, Bool, const int*);
+typedef GLXContext (*GLXCREATECONTEXTATTRIBSARBPROC)(Display*, GLXFBConfig, GLXContext, Bool, const int*);
 
-GLuint loadBMP_custom(const char * imagepath){
-
-	// Data read from the header of the BMP file
-	unsigned char header[54];
-	unsigned int dataPos;
-	unsigned int imageSize;
-	unsigned int width, height;
-	// Actual RGB data
-	unsigned char * data;
-
-	// Open the file
-	FILE * file = fopen(imagepath,"rb");
-	fread(header, 1, 54, file);
-
-	// Read the information about the image
-	dataPos    = *(int*)&(header[0x0A]);
-	imageSize  = *(int*)&(header[0x22]);
-	width      = *(int*)&(header[0x12]);
-	height     = *(int*)&(header[0x16]);
-
-	// Some BMP files are misformatted, guess missing information
-	if (imageSize==0)    imageSize=width*height*3; // 3 : one byte for each Red, Green and Blue component
-	if (dataPos==0)      dataPos=54; // The BMP header is done that way
-
-	data = new unsigned char [imageSize];
-	fread(data,1,imageSize,file);
-	fclose (file);
+GLuint createTexture(const Mat image){
 	GLuint textureID;
 	glGenTextures(1, &textureID);
 	glBindTexture(GL_TEXTURE_2D, textureID);
-	glTexImage2D(GL_TEXTURE_2D, 0,GL_RGB, width, height, 0, GL_BGR, GL_UNSIGNED_BYTE, data);
-	delete [] data;
-
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, image.cols, image.rows, 0, GL_BGR, GL_UNSIGNED_BYTE, image.data);
+	
 	// Poor filtering, or ...
 	//glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 	//glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST); 
@@ -65,12 +38,10 @@ GLuint loadBMP_custom(const char * imagepath){
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR); 
 	glGenerateMipmap(GL_TEXTURE_2D);
 
-	// Return the ID of the texture we just created
 	return textureID;
 }
 
-GLuint LoadShaders(const char * vertex_file_path,const char * fragment_file_path){
-
+GLuint LoadShaders(){
 	// Create the shaders
 	GLuint VertexShaderID = glCreateShader(GL_VERTEX_SHADER);
 	GLuint FragmentShaderID = glCreateShader(GL_FRAGMENT_SHADER);
@@ -88,7 +59,7 @@ GLuint LoadShaders(const char * vertex_file_path,const char * fragment_file_path
 	if (InfoLogLength > 1){
 		std::string VertexShaderErrorMessage(InfoLogLength+1, 0);
 		glGetShaderInfoLog(VertexShaderID, InfoLogLength, NULL, &VertexShaderErrorMessage[0]);
-		cout << VertexShaderErrorMessage;
+		std::cerr << VertexShaderErrorMessage;
 	}
 
 	// Compile Fragment Shader
@@ -101,7 +72,7 @@ GLuint LoadShaders(const char * vertex_file_path,const char * fragment_file_path
 	if (InfoLogLength > 1){
 		std::string FragmentShaderErrorMessage(InfoLogLength+1, 0);
 		glGetShaderInfoLog(FragmentShaderID, InfoLogLength, NULL, &FragmentShaderErrorMessage[0]);
-		cout << FragmentShaderErrorMessage;
+		std::cerr << FragmentShaderErrorMessage;
 	}
 
 	// Link the program
@@ -116,7 +87,7 @@ GLuint LoadShaders(const char * vertex_file_path,const char * fragment_file_path
 	if (InfoLogLength > 1){
 		std::string ProgramErrorMessage(InfoLogLength+1, 0);
 		glGetProgramInfoLog(ProgramID, InfoLogLength, NULL, &ProgramErrorMessage[0]);
-		cout << ProgramErrorMessage;
+		std::cerr << ProgramErrorMessage;
 	}
 
 	glDeleteShader(VertexShaderID);
@@ -125,15 +96,23 @@ GLuint LoadShaders(const char * vertex_file_path,const char * fragment_file_path
 	return ProgramID;
 }
 
-GLuint programID, MatrixID, Texture, TextureID, vertexbuffer, VertexArrayID, uvbuffer, framebuffer, renderbuffer, imgw=640, imgh=480;
+// pryč s tim -> class
+GLuint programID, MatrixID, InvMatrixID, Texture, TextureID, vertexbuffer, VertexArrayID, uvbuffer, framebuffer, renderbuffer, imgw=800, imgh=600;
 
-float MVP[] = {
-	 1.086396, -0.993682, -0.687368, -0.685994,
-	 0.000000,  2.070171, -0.515526, -0.514496,
-	-1.448528, -0.745262, -0.515526, -0.514496,
-	 0.000000,  0.000000,  5.642426,  5.830953};
+Render::Render(Heuristic hint)
+{
+}
 
-void render()
+Render::~Render()
+{
+}
+
+Mat Render::projected(const Mat camera, const Mat frame, const Mat projector, const Mat points, const Mat indices)
+{
+	Mat result;
+	return result;
+}
+void render(const Mat camera, const Mat projector)
 {
 	// Clear the screen
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -143,7 +122,9 @@ void render()
 
 	// Send our transformation to the currently bound shader, 
 	// in the "MVP" uniform
-	glUniformMatrix4fv(MatrixID, 1, GL_FALSE, MVP);
+	glUniformMatrix4fv(MatrixID, 1, GL_FALSE, (float*)camera.data);
+
+	glUniformMatrix4fv(InvMatrixID, 1, GL_FALSE, (float*)projector.data);
 
 	// Bind our texture in Texture Unit 0
 	glActiveTexture(GL_TEXTURE0);
@@ -154,26 +135,7 @@ void render()
 	// 1rst attribute buffer : vertices
 	glEnableVertexAttribArray(0);
 	glBindBuffer(GL_ARRAY_BUFFER, vertexbuffer);
-	glVertexAttribPointer(
-		0,                  // attribute. No particular reason for 0, but must match the layout in the shader.
-		3,                  // size
-		GL_FLOAT,           // type
-		GL_FALSE,           // normalized?
-		0,                  // stride
-		(void*)0            // array buffer offset
-	);
-
-	// 2nd attribute buffer : UVs
-	glEnableVertexAttribArray(1);
-	glBindBuffer(GL_ARRAY_BUFFER, uvbuffer);
-	glVertexAttribPointer(
-		1,                                // attribute. No particular reason for 1, but must match the layout in the shader.
-		2,                                // size : U+V => 2
-		GL_FLOAT,                         // type
-		GL_FALSE,                         // normalized?
-		0,                                // stride
-		(void*)0                          // array buffer offset
-	);
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, (void*)0);
 
 	glViewport(0, 0, imgw, imgh);
 	glDrawArrays(GL_TRIANGLES, 0, 12*3); // 12*3 indices starting at 0 -> 12 triangles
@@ -182,13 +144,17 @@ void render()
 	glDisableVertexAttribArray(1);
 }	
 
+Mat Render::depth(const Mat camera, const Mat points, const Mat indices) {
+	
+}
+
 Display *display;
 GLXContext context;
 GLXPbuffer glxbuffer;
 
 void save(const char* filename)
 {
-	std::vector<unsigned char> data(imgw*imgh*3);
+	unsigned char *data = new unsigned char[imgw*imgh*3];
 	glReadBuffer(GL_COLOR_ATTACHMENT0);
 	glReadPixels(0, 0, imgw, imgh, GL_RGB, GL_UNSIGNED_BYTE, &data[0]);
 	
@@ -199,6 +165,7 @@ void save(const char* filename)
 		fputc((unsigned char)(data[3*i+2]), outf);
 	}
 	fclose(outf);
+	delete data;
 }
 
 void initSystem()
@@ -221,7 +188,7 @@ void initSystem()
 	GLXContext oldContext = glXCreateContext(display, visual, None, GL_TRUE);
 	glXMakeCurrent(display, glxbuffer, oldContext);
 
- 	CREATECTXPROC glXCreateContextAttribsARB = (CREATECTXPROC) glXGetProcAddress((const GLubyte*)"glXCreateContextAttribsARB");
+ 	GLXCREATECONTEXTATTRIBSARBPROC glXCreateContextAttribsARB = (GLXCREATECONTEXTATTRIBSARBPROC) glXGetProcAddress((const GLubyte*)"glXCreateContextAttribsARB");
 	int ctxattribs[] = {GLX_CONTEXT_MAJOR_VERSION_ARB, 3, GLX_CONTEXT_MINOR_VERSION_ARB, 0, GLX_CONTEXT_PROFILE_MASK_ARB, GLX_CONTEXT_CORE_PROFILE_BIT_ARB, 0};
 	context = glXCreateContextAttribsARB(display, *fbconfig, 0, GL_TRUE, ctxattribs);
 	glXMakeCurrent(display, glxbuffer, context);
@@ -244,10 +211,11 @@ void initScene()
 	glEnable(GL_DEPTH_TEST);
 	glDepthFunc(GL_LESS); 
 
-	programID = LoadShaders( "TransformVertexShader.vert", "TextureFragmentShader.frag" );
+	programID = LoadShaders();
 	MatrixID = glGetUniformLocation(programID, "MVP");
+	InvMatrixID = glGetUniformLocation(programID, "sideMVP");
 
-	Texture = loadBMP_custom("uvtemplate.bmp");
+	Texture = createTexture(cv::imread("uvtemplate.bmp"));
 	TextureID = glGetUniformLocation(programID, "myTextureSampler");
 	
 	static const GLfloat g_vertex_buffer_data[] = { 
@@ -289,54 +257,11 @@ void initScene()
 		 1.0f,-1.0f, 1.0f
 	};
 
-	static const GLfloat g_uv_buffer_data[] = { 
-		0.000059f, 1.0f-0.000004f, 
-		0.000103f, 1.0f-0.336048f, 
-		0.335973f, 1.0f-0.335903f, 
-		1.000023f, 1.0f-0.000013f, 
-		0.667979f, 1.0f-0.335851f, 
-		0.999958f, 1.0f-0.336064f, 
-		0.667979f, 1.0f-0.335851f, 
-		0.336024f, 1.0f-0.671877f, 
-		0.667969f, 1.0f-0.671889f, 
-		1.000023f, 1.0f-0.000013f, 
-		0.668104f, 1.0f-0.000013f, 
-		0.667979f, 1.0f-0.335851f, 
-		0.000059f, 1.0f-0.000004f, 
-		0.335973f, 1.0f-0.335903f, 
-		0.336098f, 1.0f-0.000071f, 
-		0.667979f, 1.0f-0.335851f, 
-		0.335973f, 1.0f-0.335903f, 
-		0.336024f, 1.0f-0.671877f, 
-		1.000004f, 1.0f-0.671847f, 
-		0.999958f, 1.0f-0.336064f, 
-		0.667979f, 1.0f-0.335851f, 
-		0.668104f, 1.0f-0.000013f, 
-		0.335973f, 1.0f-0.335903f, 
-		0.667979f, 1.0f-0.335851f, 
-		0.335973f, 1.0f-0.335903f, 
-		0.668104f, 1.0f-0.000013f, 
-		0.336098f, 1.0f-0.000071f, 
-		0.000103f, 1.0f-0.336048f, 
-		0.000004f, 1.0f-0.671870f, 
-		0.336024f, 1.0f-0.671877f, 
-		0.000103f, 1.0f-0.336048f, 
-		0.336024f, 1.0f-0.671877f, 
-		0.335973f, 1.0f-0.335903f, 
-		0.667969f, 1.0f-0.671889f, 
-		1.000004f, 1.0f-0.671847f, 
-		0.667979f, 1.0f-0.335851f
-	};
-
 	glGenVertexArrays(1, &VertexArrayID);
 	glBindVertexArray(VertexArrayID);
 	glGenBuffers(1, &vertexbuffer);
 	glBindBuffer(GL_ARRAY_BUFFER, vertexbuffer);
 	glBufferData(GL_ARRAY_BUFFER, sizeof(g_vertex_buffer_data), g_vertex_buffer_data, GL_STATIC_DRAW);
-
-	glGenBuffers(1, &uvbuffer);
-	glBindBuffer(GL_ARRAY_BUFFER, uvbuffer);
-	glBufferData(GL_ARRAY_BUFFER, sizeof(g_uv_buffer_data), g_uv_buffer_data, GL_STATIC_DRAW);
 }
 
 void deinitScene()
@@ -347,15 +272,27 @@ void deinitScene()
 	glDeleteTextures(1, &TextureID);
 	glDeleteVertexArrays(1, &VertexArrayID);
 }
-		
+
+#ifdef TEST_BUILD
 int main(int argc, char ** argv)
 {
+	Mat MVP = Mat(cv::Matx44f(
+	 1.086396, -0.993682, -0.687368, -0.685994,
+	 0.000000,  2.070171, -0.515526, -0.514496,
+	-1.448528, -0.745262, -0.515526, -0.514496,
+	 0.000000,  0.000000,  5.642426,  5.830953));
+	Mat sideMVP = Mat(cv::Matx44f(
+	 0.940846, -1.895640, -0.337515, -0.336840,
+	 0.543198, 1.295979, -0.790143, -0.788564,
+	 -1.448528, -0.745262, -0.515526, -0.514496,
+	 0.000000, 0.000000, 5.642426, 5.830953));
 	initSystem();
 	initScene();
-	render();
+	render(MVP, sideMVP);
 	save("frame.data");
 	deinitScene();
 	deinitSystem();
 	return 0;
 }
-
+#endif
+#endif
