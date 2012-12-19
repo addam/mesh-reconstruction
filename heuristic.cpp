@@ -1,6 +1,3 @@
-#ifndef HEURISTIC_CPP
-#define HEURISTIC_CPP
-
 #include "recon.hpp"
 
 Heuristic::Heuristic(Configuration config)
@@ -31,4 +28,3 @@ int Heuristic::beginSide()
 int Heuristic::nextSide()
 { // return frame number for next side camera
 }
-#endif

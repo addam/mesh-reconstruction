@@ -1,6 +1,3 @@
-#ifndef FLOW_CPP
-#define FLOW_CPP
-
 #include <opencv2/video/tracking.hpp>
 #include "recon.hpp"
 
@@ -12,4 +9,3 @@ void calculateFlow(Mat prev, Mat next, Mat flows)
 	calcOpticalFlowFarneback(prev, next, flow, pyr_scale, levels, winsize, iterations, poly_n, poly_sigma, flags);
 	addChannel(flows, flow);
 }
-#endif

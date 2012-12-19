@@ -1,19 +1,25 @@
+#ifndef RECON_HPP
+#define RECON_HPP
+
 #include <opencv2/core/core.hpp>
 typedef cv::Mat Mat;
 
 class Configuration;
 class Heuristic;
 
+// alpha_shapes.cpp
 Mat alphaShapeIndices(const Mat points);
-Mat render(const Mat camera, const Mat frame, const Mat projector, const Mat points, const Mat indices);
-Mat renderDepth(const Mat camera, const Mat points, const Mat indices);
-void calculateFlow(const Mat prev, const Mat next, Mat flows); //přidá další kanál do matice flows
-Mat triangulatePixels(const Mat flows, const Mat cameras, const Mat depth); //mělo by to jako poslední kanál zaznamenávat chybovou míru, aspoň nějak urvat
 
+// flow.cpp
+void calculateFlow(const Mat prev, const Mat next, Mat flows);
+
+// util.cpp
+Mat triangulatePixels(const Mat flows, const Mat cameras, const Mat depth); //mělo by to jako poslední kanál zaznamenávat chybovou míru, aspoň nějak urvat
 void saveImage(const Mat image, const char *fileName);
 void saveMesh(const Mat points, const Mat indices, const char *fileName);
 void addChannel(Mat dest, const Mat src);
 
+// configuration.cpp
 class Configuration {
 	public:
 		Configuration(int argc, char** argv);
@@ -23,14 +29,16 @@ class Configuration {
 		Mat camera(int number);
 };
 
+// render_<whatever>.cpp
 class Render {
 	public:
-		Render(Heuristic hint);
-		~Render();
-		Mat projected(const Mat camera, const Mat frame, const Mat projector, const Mat points, const Mat indices);
-		Mat depth(const Mat camera, const Mat points, const Mat indices);
+		virtual ~Render() {};
+		virtual Mat projected(const Mat camera, const Mat frame, const Mat projector, const Mat points, const Mat indices) = 0;
+		virtual Mat depth(const Mat camera, const Mat points, const Mat indices) = 0;
 };
+Render *spawnRender(Heuristic hint);
 
+// heuristic.cpp
 class Heuristic {
 	public:
 		Heuristic(Configuration config);
@@ -43,4 +51,4 @@ class Heuristic {
 		void filterPoints(Mat points);
 		static const int sentinel = -1;
 };
-
+#endif

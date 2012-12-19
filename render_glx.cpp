@@ -1,6 +1,3 @@
-#ifndef RENDER_GLX_CPP
-#define RENDER_GLX_CPP
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string>
@@ -15,11 +12,28 @@
 
 //sets the variables vertexShaderSources, fragmentShaderSources
 #include "shaders.hpp"
+
 #include "recon.hpp"
 
 #define GLX_CONTEXT_MAJOR_VERSION_ARB		0x2091
 #define GLX_CONTEXT_MINOR_VERSION_ARB		0x2092
 typedef GLXContext (*GLXCREATECONTEXTATTRIBSARBPROC)(Display*, GLXFBConfig, GLXContext, Bool, const int*);
+
+class RenderGLX;
+
+class RenderGLX: public Render {
+	public:
+		RenderGLX(int width, int height, char *displayName);
+		~RenderGLX();
+		virtual Mat projected(const Mat camera, const Mat frame, const Mat projector, const Mat points, const Mat indices);
+		virtual Mat depth(const Mat camera, const Mat points, const Mat indices);		
+};
+
+Render *spawnRender(Heuristic hint)
+{
+	RenderGLX *render = new RenderGLX(640, 480, NULL);
+	return render;
+}
 
 GLuint createTexture(const Mat image){
 	GLuint textureID;
@@ -27,11 +41,10 @@ GLuint createTexture(const Mat image){
 	glBindTexture(GL_TEXTURE_2D, textureID);
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, image.cols, image.rows, 0, GL_BGR, GL_UNSIGNED_BYTE, image.data);
 	
-	// Poor filtering, or ...
+	// nearest neighbor filtering
 	//glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 	//glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST); 
 
-	// ... nice trilinear filtering.
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -99,15 +112,15 @@ GLuint LoadShaders(){
 // pryč s tim -> class
 GLuint programID, MatrixID, InvMatrixID, Texture, TextureID, vertexbuffer, VertexArrayID, uvbuffer, framebuffer, renderbuffer, imgw=800, imgh=600;
 
-Render::Render(Heuristic hint)
+RenderGLX::RenderGLX(int width, int height, char *displayName)
 {
 }
 
-Render::~Render()
+RenderGLX::~RenderGLX()
 {
 }
 
-Mat Render::projected(const Mat camera, const Mat frame, const Mat projector, const Mat points, const Mat indices)
+Mat RenderGLX::projected(const Mat camera, const Mat frame, const Mat projector, const Mat points, const Mat indices)
 {
 	Mat result;
 	return result;
@@ -144,7 +157,7 @@ void render(const Mat camera, const Mat projector)
 	glDisableVertexAttribArray(1);
 }	
 
-Mat Render::depth(const Mat camera, const Mat points, const Mat indices) {
+Mat RenderGLX::depth(const Mat camera, const Mat points, const Mat indices) {
 	
 }
 
@@ -294,5 +307,4 @@ int main(int argc, char ** argv)
 	deinitSystem();
 	return 0;
 }
-#endif
 #endif

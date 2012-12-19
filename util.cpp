@@ -1,6 +1,3 @@
-#ifndef UTIL_CPP
-#define UTIL_CPP
-
 #include "recon.hpp"
 
 Mat triangulatePixels(const Mat flows, const Mat cameras, const Mat depth)
@@ -21,5 +18,3 @@ void saveMesh(Mat points, Mat indices, const char *fileName)
 {
 	
 }
-
-#endif

@@ -1,6 +1,3 @@
-#ifndef ALPHA_SHAPES_CPP
-#define ALPHA_SHAPES_CPP
-
 #include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
 #include <CGAL/Delaunay_triangulation_3.h>
 #include <CGAL/Alpha_shape_3.h>
@@ -10,13 +7,13 @@
 #include <vector>
 #include <map>
 
-	#ifndef TEST_BUILD
-	#include "recon.hpp"
-	#else
-	typedef cv::Mat Mat;
-	#include <iostream>
-	#include <fstream>
-	#endif
+#ifndef TEST_BUILD
+#include "recon.hpp"
+#else
+typedef cv::Mat Mat;
+#include <iostream>
+#include <fstream>
+#endif
 
 typedef CGAL::Exact_predicates_inexact_constructions_kernel Gt;
 
@@ -88,5 +85,4 @@ int main()
 	}
 	os.close();
 }
-#endif
 #endif
