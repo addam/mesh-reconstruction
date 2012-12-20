@@ -25,13 +25,19 @@ class RenderGLX: public Render {
 	public:
 		RenderGLX(int width, int height, char *displayName);
 		~RenderGLX();
-		virtual Mat projected(const Mat camera, const Mat frame, const Mat projector, const Mat points, const Mat indices);
-		virtual Mat depth(const Mat camera, const Mat points, const Mat indices);		
+		virtual void loadMesh(const Mat points, const Mat indices);
+		virtual Mat projected(const Mat camera, const Mat frame, const Mat projector);
+		virtual Mat depth(const Mat camera);		
+	protected:
+		GLuint programID, MatrixID, InvMatrixID, Texture, TextureID, vertexbuffer, VertexArrayID, imgw, imgh;
+		Display *display;
+		GLXContext context;
+		GLXPbuffer glxbuffer;
 };
 
 Render *spawnRender(Heuristic hint)
 {
-	RenderGLX *render = new RenderGLX(640, 480, NULL);
+	RenderGLX *render = new RenderGLX(640, 480, getenv("DISPLAY"));
 	return render;
 }
 
@@ -109,82 +115,14 @@ GLuint LoadShaders(){
 	return ProgramID;
 }
 
-// pryč s tim -> class
-GLuint programID, MatrixID, InvMatrixID, Texture, TextureID, vertexbuffer, VertexArrayID, uvbuffer, framebuffer, renderbuffer, imgw=800, imgh=600;
-
 RenderGLX::RenderGLX(int width, int height, char *displayName)
 {
-}
-
-RenderGLX::~RenderGLX()
-{
-}
-
-Mat RenderGLX::projected(const Mat camera, const Mat frame, const Mat projector, const Mat points, const Mat indices)
-{
-	Mat result;
-	return result;
-}
-void render(const Mat camera, const Mat projector)
-{
-	// Clear the screen
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-	// Use our shader
-	glUseProgram(programID);
-
-	// Send our transformation to the currently bound shader, 
-	// in the "MVP" uniform
-	glUniformMatrix4fv(MatrixID, 1, GL_FALSE, (float*)camera.data);
-
-	glUniformMatrix4fv(InvMatrixID, 1, GL_FALSE, (float*)projector.data);
-
-	// Bind our texture in Texture Unit 0
-	glActiveTexture(GL_TEXTURE0);
-	glBindTexture(GL_TEXTURE_2D, Texture);
-	// Set our "myTextureSampler" sampler to user Texture Unit 0
-	glUniform1i(TextureID, 0);
-
-	// 1rst attribute buffer : vertices
-	glEnableVertexAttribArray(0);
-	glBindBuffer(GL_ARRAY_BUFFER, vertexbuffer);
-	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, (void*)0);
-
-	glViewport(0, 0, imgw, imgh);
-	glDrawArrays(GL_TRIANGLES, 0, 12*3); // 12*3 indices starting at 0 -> 12 triangles
-
-	glDisableVertexAttribArray(0);
-	glDisableVertexAttribArray(1);
-}	
-
-Mat RenderGLX::depth(const Mat camera, const Mat points, const Mat indices) {
+	vertexbuffer = -1;
 	
-}
-
-Display *display;
-GLXContext context;
-GLXPbuffer glxbuffer;
-
-void save(const char* filename)
-{
-	unsigned char *data = new unsigned char[imgw*imgh*3];
-	glReadBuffer(GL_COLOR_ATTACHMENT0);
-	glReadPixels(0, 0, imgw, imgh, GL_RGB, GL_UNSIGNED_BYTE, &data[0]);
-	
-	FILE* outf = fopen(filename, "wb+");
-	for (int i=0; i<imgw*imgh; i++) {
-		fputc((unsigned char)(data[3*i]), outf);
-		fputc((unsigned char)(data[3*i+1]), outf);
-		fputc((unsigned char)(data[3*i+2]), outf);
-	}
-	fclose(outf);
-	delete data;
-}
-
-void initSystem()
-{
+	imgw = width;
+	imgh = height;
 	_Xdebug = 1;
-	display = XOpenDisplay(getenv("DISPLAY"));
+	display = XOpenDisplay(displayName);
 	XSynchronize(display, 0);
 
 	//NOTE: for some reason, my system has only a RGBA Visual and only a RGB FrameBuffer
@@ -208,18 +146,7 @@ void initSystem()
 	glXDestroyContext(display, oldContext);
 	
 	glewInit();
-}
 
-
-void deinitSystem()
-{
-	glXDestroyContext(display, context);
-	glXDestroyPbuffer(display, glxbuffer);
-	XCloseDisplay(display);
-}
-
-void initScene()
-{
 	glClearColor(0.0f, 0.0f, 0.3f, 0.0f);
 	glEnable(GL_DEPTH_TEST);
 	glDepthFunc(GL_LESS); 
@@ -227,66 +154,107 @@ void initScene()
 	programID = LoadShaders();
 	MatrixID = glGetUniformLocation(programID, "MVP");
 	InvMatrixID = glGetUniformLocation(programID, "sideMVP");
+	TextureID = glGetUniformLocation(programID, "myTextureSampler");
 
 	Texture = createTexture(cv::imread("uvtemplate.bmp"));
-	TextureID = glGetUniformLocation(programID, "myTextureSampler");
-	
-	static const GLfloat g_vertex_buffer_data[] = { 
-		-1.0f,-1.0f,-1.0f,
-		-1.0f,-1.0f, 1.0f,
-		-1.0f, 1.0f, 1.0f,
-		 1.0f, 1.0f,-1.0f,
-		-1.0f,-1.0f,-1.0f,
-		-1.0f, 1.0f,-1.0f,
-		 1.0f,-1.0f, 1.0f,
-		-1.0f,-1.0f,-1.0f,
-		 1.0f,-1.0f,-1.0f,
-		 1.0f, 1.0f,-1.0f,
-		 1.0f,-1.0f,-1.0f,
-		-1.0f,-1.0f,-1.0f,
-		-1.0f,-1.0f,-1.0f,
-		-1.0f, 1.0f, 1.0f,
-		-1.0f, 1.0f,-1.0f,
-		 1.0f,-1.0f, 1.0f,
-		-1.0f,-1.0f, 1.0f,
-		-1.0f,-1.0f,-1.0f,
-		-1.0f, 1.0f, 1.0f,
-		-1.0f,-1.0f, 1.0f,
-		 1.0f,-1.0f, 1.0f,
-		 1.0f, 1.0f, 1.0f,
-		 1.0f,-1.0f,-1.0f,
-		 1.0f, 1.0f,-1.0f,
-		 1.0f,-1.0f,-1.0f,
-		 1.0f, 1.0f, 1.0f,
-		 1.0f,-1.0f, 1.0f,
-		 1.0f, 1.0f, 1.0f,
-		 1.0f, 1.0f,-1.0f,
-		-1.0f, 1.0f,-1.0f,
-		 1.0f, 1.0f, 1.0f,
-		-1.0f, 1.0f,-1.0f,
-		-1.0f, 1.0f, 1.0f,
-		 1.0f, 1.0f, 1.0f,
-		-1.0f, 1.0f, 1.0f,
-		 1.0f,-1.0f, 1.0f
-	};
-
 	glGenVertexArrays(1, &VertexArrayID);
-	glBindVertexArray(VertexArrayID);
-	glGenBuffers(1, &vertexbuffer);
-	glBindBuffer(GL_ARRAY_BUFFER, vertexbuffer);
-	glBufferData(GL_ARRAY_BUFFER, sizeof(g_vertex_buffer_data), g_vertex_buffer_data, GL_STATIC_DRAW);
 }
 
-void deinitScene()
+RenderGLX::~RenderGLX()
 {
+	//deinitScene
 	glDeleteBuffers(1, &vertexbuffer);
-	glDeleteBuffers(1, &uvbuffer);
 	glDeleteProgram(programID);
 	glDeleteTextures(1, &TextureID);
 	glDeleteVertexArrays(1, &VertexArrayID);
+
+	//deinitSystem
+	glXDestroyContext(display, context);
+	glXDestroyPbuffer(display, glxbuffer);
+	XCloseDisplay(display);
+}
+
+void RenderGLX::loadMesh(const Mat points, const Mat indices) {
+	assert (indices.isContinuous() && points.isContinuous());
+
+	const int *idx = indices.ptr<int>(0);
+	int vertex_count = indices.rows;
+	GLfloat *vertex_buffer_data = new GLfloat[3*vertex_count];
+	for (int i=0; i < vertex_count;) {
+		const float *row = points.ptr<float>(idx[i]);
+		vertex_buffer_data[i++] = row[0];
+		vertex_buffer_data[i++] = row[1];
+		vertex_buffer_data[i++] = row[2];
+	}
+	
+	glBindVertexArray(VertexArrayID);
+	glGenBuffers(1, &vertexbuffer);
+	glBindBuffer(GL_ARRAY_BUFFER, vertexbuffer);
+	glBufferData(GL_ARRAY_BUFFER, sizeof(vertex_buffer_data), vertex_buffer_data, GL_STATIC_DRAW);	
+}
+
+Mat RenderGLX::projected(const Mat camera, const Mat frame, const Mat projector)
+{
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	glUseProgram(programID);
+	glUniformMatrix4fv(MatrixID, 1, GL_FALSE, (float*)camera.data);
+	glUniformMatrix4fv(InvMatrixID, 1, GL_FALSE, (float*)projector.data);
+
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, Texture);
+	// Set our "myTextureSampler" sampler to user Texture Unit 0
+	glUniform1i(TextureID, 0);
+
+	glEnableVertexAttribArray(0);
+	glBindBuffer(GL_ARRAY_BUFFER, vertexbuffer);
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, (void*)0);
+
+	glViewport(0, 0, imgw, imgh);
+	glDrawArrays(GL_TRIANGLES, 0, 12*3); // 12*3 indices starting at 0 -> 12 triangles
+
+	glDisableVertexAttribArray(0);
+	glDisableVertexAttribArray(1);
+
+	Mat result(imgw, imgh, CV_8UC3);
+	glReadBuffer(GL_COLOR_ATTACHMENT0);
+	glReadPixels(0, 0, imgw, imgh, GL_RGB, GL_UNSIGNED_BYTE, result.data);
+}	
+
+Mat RenderGLX::depth(const Mat camera) {
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	glEnableVertexAttribArray(0);
+	glBindBuffer(GL_ARRAY_BUFFER, vertexbuffer);
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, (void*)0);
+
+	glViewport(0, 0, imgw, imgh);
+	glDrawArrays(GL_TRIANGLES, 0, 12*3); // 12*3 indices starting at 0 -> 12 triangles
+
+	glDisableVertexAttribArray(0);
+	glDisableVertexAttribArray(1);
+
+	Mat result(imgw, imgh, CV_8UC1);
+	glReadBuffer(GL_DEPTH_ATTACHMENT);
+	glReadPixels(0, 0, imgw, imgh, GL_DEPTH_COMPONENT, GL_UNSIGNED_BYTE, result.data);
+	return result;
 }
 
 #ifdef TEST_BUILD
+void save(const char* filename)
+{
+	unsigned char *data = new unsigned char[imgw*imgh*3];
+	glReadBuffer(GL_COLOR_ATTACHMENT0);
+	glReadPixels(0, 0, imgw, imgh, GL_RGB, GL_UNSIGNED_BYTE, &data[0]);
+	
+	FILE* outf = fopen(filename, "wb+");
+	for (int i=0; i<imgw*imgh; i++) {
+		fputc((unsigned char)(data[3*i]), outf);
+		fputc((unsigned char)(data[3*i+1]), outf);
+		fputc((unsigned char)(data[3*i+2]), outf);
+	}
+	fclose(outf);
+	delete data;
+}
+
 int main(int argc, char ** argv)
 {
 	Mat MVP = Mat(cv::Matx44f(

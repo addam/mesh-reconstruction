@@ -10,6 +10,7 @@ int main(int argc, char ** argv) {
 	while (hint.notHappy(points)) {
 		//sestav z nich alphashape
 		Mat indices = alphaShapeIndices(points);
+		render->loadMesh(points, indices);
 		
 		hint.chooseCameras();
 		for (int fa = hint.beginMain(); fa != Heuristic::sentinel; fa = hint.nextMain()) {
@@ -17,15 +18,16 @@ int main(int argc, char ** argv) {
 			//promítni druhý do kamery prvního
 			Mat originalImage = config.frame(fa);
 			saveImage(originalImage, "frame20.png"); //DEBUG
-			Mat depth = render->depth(config.camera(fa), points, indices);
+			Mat depth = render->depth(config.camera(fa));
 			saveImage(depth, "frame20depth.png"); //DEBUG
-			Mat flows, cameras;
+			MatList flows, cameras;
 			for (int fb = hint.beginSide(); fb != Heuristic::sentinel; fb = hint.nextSide()) {
-				Mat projectedImage = render->projected(config.camera(fa), config.camera(fb), config.frame(fb), points, indices);
+				Mat projectedImage = render->projected(config.camera(fa), config.camera(fb), config.frame(fb));
 				//nahrubo ulož výsledek
 				saveImage(projectedImage, "frame75to20.png"); //DEBUG
 				//spočítej Farnebackův optical flow, pro začátek
-				calculateFlow(originalImage, projectedImage, flows);
+				Mat flow = calculateFlow(originalImage, projectedImage);
+				addChannel(flows, flow);
 				addChannel(cameras, config.camera(fb));
 			}
 			//trianguluj všechny pixely

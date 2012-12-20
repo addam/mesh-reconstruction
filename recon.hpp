@@ -2,7 +2,9 @@
 #define RECON_HPP
 
 #include <opencv2/core/core.hpp>
+#include <list>
 typedef cv::Mat Mat;
+typedef std::list<Mat> MatList;
 
 class Configuration;
 class Heuristic;
@@ -11,13 +13,13 @@ class Heuristic;
 Mat alphaShapeIndices(const Mat points);
 
 // flow.cpp
-void calculateFlow(const Mat prev, const Mat next, Mat flows);
+Mat calculateFlow(const Mat prev, const Mat next);
 
 // util.cpp
-Mat triangulatePixels(const Mat flows, const Mat cameras, const Mat depth); //mělo by to jako poslední kanál zaznamenávat chybovou míru, aspoň nějak urvat
+Mat triangulatePixels(const MatList flows, const MatList cameras, const Mat depth); //mělo by to jako poslední kanál zaznamenávat chybovou míru, aspoň nějak urvat
 void saveImage(const Mat image, const char *fileName);
 void saveMesh(const Mat points, const Mat indices, const char *fileName);
-void addChannel(Mat dest, const Mat src);
+void addChannel(MatList dest, const Mat src);
 
 // configuration.cpp
 class Configuration {
@@ -33,8 +35,9 @@ class Configuration {
 class Render {
 	public:
 		virtual ~Render() {};
-		virtual Mat projected(const Mat camera, const Mat frame, const Mat projector, const Mat points, const Mat indices) = 0;
-		virtual Mat depth(const Mat camera, const Mat points, const Mat indices) = 0;
+		virtual void loadMesh(const Mat points, const Mat indices) = 0;
+		virtual Mat projected(const Mat camera, const Mat frame, const Mat projector) = 0;
+		virtual Mat depth(const Mat camera) = 0;
 };
 Render *spawnRender(Heuristic hint);
 
