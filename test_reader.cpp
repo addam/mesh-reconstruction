@@ -9,7 +9,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <iostream>
+#include <fstream>
 #include <set>
+
+#include "recon.hpp"
 
 using namespace cv;
 using namespace std;
@@ -65,6 +68,44 @@ static bool readModelViews( const string& filename, vector<Point3f>& box,
     return true;
 }
 
+const Mat removeProjectionZ(const Mat projection)
+{
+	Mat result = Mat(projection.rowRange(0,2));
+	result.push_back(projection.row(3));
+	return result;
+}
+
+inline const float invertPoly(const float k1, const float k2, const float q)
+{
+	float x = q, dx;
+	for (int i=0; i<1000; i++) {
+		dx = (q - x*(1 + x*(k1 + x*k2)));
+		if (dx < 1.e-6 && dx > -1.e-6)
+			break;
+		dx /= (1 + x*(2*k1 + 3*x*k2));
+		x += dx;
+	}
+	return x;
+}
+
+const Mat screenToCamera(const Mat points, const float width, const float height, const vector<float> lensDistortion)
+{
+	const Mat mscale(Matx22f(2.0/width, 0, 0, 2.0/height)), mneg(Matx22f(1, 0, 0, -1));
+	Mat rp = points.reshape(1).t();
+	rp = mneg * (mscale * rp - 1);
+	Mat rad = Mat::ones(1, 2, CV_32FC1) * rp.mul(rp);
+	float *radius = rad.ptr<float>(0);
+	float avg = 0.0;
+	for (int i=0; i < rad.cols; i++) {
+		float k = sqrt(invertPoly(lensDistortion[0], lensDistortion[1], radius[i]) / radius[i]);
+		rp.col(i) *= k;
+		avg += k;
+	}
+	if (rad.cols > 0)
+		cout << "Distortion " << avg/rad.cols << " on average" << endl;
+	return rp;
+}
+
 int main(int argc, char** argv) {
 	const char defaultFile[] = "tracks/rotunda.yaml", windowName[] = "Reader";
 	FileStorage fs(((argc>1) ? argv[1]: defaultFile), FileStorage::READ);
@@ -98,137 +139,140 @@ int main(int argc, char** argv) {
 		bundles.push_back(bundle);
 		bundleCount += 1;
 	}
-	bundles = bundles.t();
 	cout << "Loaded "<< bundleCount <<" bundles."<<endl;
 
 
 	VideoCapture clip(clipPath);
 	int delay = 1000/clip.get(CV_CAP_PROP_FPS), frameCount = clip.get(CV_CAP_PROP_FRAME_COUNT);
+	int frameStep = 2;
   Size subPixWinSize(10,10), winSize(31,31);
   const int MAX_COUNT = 500;
   TermCriteria termcrit(CV_TERMCRIT_ITER|CV_TERMCRIT_EPS,20,0.03);
-	Mat frame, nextFrame, gray[3];
-	Mat projection[3], position[3];
-	//points[1] are current, points[0] and [2] are tracked to the previous and the next frame, respectively
-	vector<Point2f> points[3];
-	vector<Point3f> reconstructedPoints;
+	Mat frame, gray[2];
+	Mat projection[2];
+	Mat reconstructedPoints(0, 3, CV_32FC1);
 	FileNode camera = fs["camera"];
 	FileNodeIterator cit=camera.begin();
-	for (short i=1; i<3; i++) {
-		int frame; //FIXME: some of the tables can be not initialized if output is messy
-		(*cit)["frame"] >> frame;
-		(*cit)["projection"] >> projection[i];
-		projection[i] = Mat(projection[i].rowRange(0,3));
-		(*cit)["position"] >> position[i];
-		clip >> nextFrame;
-	  cvtColor(nextFrame, gray[i], CV_BGR2GRAY); 
-	  cit ++;
-	}
+	
+	int frameNo;
+	(*cit)["frame"] >> frameNo;
+	clip.set(CV_CAP_PROP_POS_FRAMES, frameNo-1);
+	clip >> frame;
+  cvtColor(frame, gray[1], CV_BGR2GRAY); 
+	Mat xyzwProjection;
+	(*cit)["projection"] >> xyzwProjection;
+	projection[1] = removeProjectionZ(xyzwProjection);
+  cit += frameStep;
 
 	namedWindow(windowName, CV_WINDOW_AUTOSIZE);
-	for (int i=3; i<frameCount && cit != camera.end(); i++) {
-		// gray[(i+2)%3] is the current frame, (i+1)%3 previous, i%3 the next one (but we must load it right now)
-		nextFrame.copyTo(frame);
-		clip >> nextFrame;
-	  cvtColor(nextFrame, gray[i%3], CV_BGR2GRAY); 
+	for (int i=0; i<frameCount && cit != camera.end(); i++) {
+		clip >> frame;
 		int frameNo;
 		(*cit)["frame"] >> frameNo;
-		while (i < frameNo && i < frameCount) {
-			clip >> frame;
-			i ++;
-		}
-		(*cit)["projection"] >> projection[i%3];
-		projection[i%3] = Mat(projection[i%3].rowRange(0,3));
-		(*cit)["position"] >> position[i%3];
+		clip.set(CV_CAP_PROP_POS_FRAMES, frameNo-1);
+		clip >> frame;
+	  cvtColor(frame, gray[i%2], CV_BGR2GRAY); 
+		Mat xyzwProjection;
+		(*cit)["projection"] >> xyzwProjection;
+		projection[i%2] = removeProjectionZ(xyzwProjection);
 		
-		goodFeaturesToTrack(gray[(i+2)%3], points[1], MAX_COUNT, 0.01, 10, Mat(), 3, 0, 0.04);
-		cornerSubPix(gray[(i+2)%3], points[1], subPixWinSize, Size(-1,-1), termcrit);
-		vector<uchar> status[2];
-		vector<float> err[2];
-		calcOpticalFlowPyrLK(gray[(i+2)%3], gray[(i+1)%3], points[1], points[0], status[0], err[0], winSize, 3, termcrit, 0, 0.001);
-		calcOpticalFlowPyrLK(gray[(i+2)%3], gray[i%3], points[1], points[2], status[1], err[1], winSize, 3, termcrit, 0, 0.001);
-		
-		int pointCount = points[1].size(), putIndex = 0;
-		Mat triangInput1, triangInput2, triangInput3;
-		for (int readIndex=0; readIndex<pointCount; readIndex++){
-			if (status[0][readIndex] && status[1][readIndex]){
-				//if (putIndex < readIndex) {
-					/*points[0][putIndex] = points[0][readIndex];
-					points[1][putIndex] = points[1][readIndex];
-					points[2][putIndex] = points[2][readIndex];*/
-					triangInput1.push_back(Mat(Mat(points[0][readIndex]).t()));
-					triangInput2.push_back(Mat(Mat(points[1][readIndex]).t()));
-					triangInput3.push_back(Mat(Mat(points[2][readIndex]).t()));
-					err[0][putIndex] = err[0][readIndex];
-					err[1][putIndex] = err[1][readIndex];
-				//}
+		Mat points, prevPoints;
+		goodFeaturesToTrack(gray[i%2], points, MAX_COUNT, 0.01, 10);
+		cornerSubPix(gray[i%2], points, subPixWinSize, Size(-1,-1), termcrit);
+		vector<uchar> status;
+		vector<float> err;
+		calcOpticalFlowPyrLK(gray[i%2], gray[(i+1)%2], points, prevPoints, status, err, winSize, 3, termcrit, 0, 0.001);
+		int pointCount = points.rows, putIndex = 0;
+		double minError;
+		minMaxIdx(err, &minError, NULL);
+		cout << "Error: " << minError << endl;
+		for (int readIndex = 0; readIndex < pointCount; readIndex ++){
+			if (status[readIndex] && err[readIndex] <= 1.5*minError){ 
+				if (putIndex != readIndex) {
+					points.row(readIndex).copyTo(points.row(putIndex));
+					prevPoints.row(readIndex).copyTo(prevPoints.row(putIndex));
+					err[putIndex] = err[readIndex];
+					status[putIndex] = status[readIndex];
+				}
 				putIndex ++;
 			}
 		}
 		if (putIndex < pointCount){
-			/*points[0].resize(putIndex);
-			points[1].resize(putIndex);
-			points[2].resize(putIndex);*/
-			err[0].resize(putIndex);
-			err[1].resize(putIndex);
+			points.resize(putIndex);
+			prevPoints.resize(putIndex);
+			err.resize(putIndex);
+			status.resize(putIndex);
 			pointCount = putIndex;
 		}
-		Mat out1, out2;
-		triangInput1 = triangInput1.t();
-		triangInput2 = triangInput2.t();
-		triangInput3 = triangInput3.t();
-		/*triangulatePoints(projection[(i+1)%3], projection[(i+2)%3], points[0], points[1], out1);// triangulatedPoints[0]);
-		triangulatePoints(projection[(i+2)%3], projection[i%3], points[1], points[2], out2);// triangulatedPoints[1]);*/
-		/*cout << i << endl << endl;
-		cout << projection[(i+1)%3] << endl << endl;
-		cout << projection[(i+2)%3] << endl << endl;
-		cout << projection[(i)%3] << endl << endl;
-		cout << triangInput2 << endl << endl;
-		cout << triangInput3 << endl << endl;
-		cout << out2 << endl << endl;
-		cout << triangInput1.rows << " " << triangInput1.cols << endl;
-		cout << triangInput2.rows << " " << triangInput2.cols << endl;*/
-		triangulatePoints(projection[(i+1)%3], projection[(i+2)%3], triangInput1, triangInput2, out1);// triangulatedPoints[0]);
-		//D: triangulatePoints(projection[(i+2)%3], projection[i%3], triangInput2, triangInput3, out2);// triangulatedPoints[1]);
-		out1 = Mat(out1.t()).clone();
-
-		Mat reconstructedPointsRaw = Mat_<float>(out1.size[0], 3);
-		convertPointsFromHomogeneous(out1.reshape(4), reconstructedPointsRaw.reshape(3));
-		for (int ip=0; ip < out1.size[0]; ip ++) {
-			reconstructedPoints.push_back(Point3f(reconstructedPointsRaw.row(ip)));
-		}
-		cout << reconstructedPoints.size() << " points" << endl;
 		
-		Mat projected = projection[(i+2)%3]*bundles;
-		for (int col=0; col<bundleCount; col++) {
-			if (bundlesEnabled[col].count(i)) {
-				float pointX = projected.at<float>(0,col)/projected.at<float>(3,col), pointY = projected.at<float>(1,col)/projected.at<float>(3,col);
-				/*float radiusSquared = pointX*pointX + pointY*pointY, distortionFactor = (1 + lensDistortion[0]*radiusSquared + lensDistortion[1]*radiusSquared*radiusSquared);
+		Mat rp = screenToCamera(points, width, height, lensDistortion), prp = screenToCamera(prevPoints, width, height, lensDistortion);
+		if (pointCount > 0) {
+			Mat triangulated;
+			triangulatePoints(projection[i%2], projection[(i+1)%2], rp, prp, triangulated);
+			triangulated = triangulated.t();
+	
+			Mat reconstructedPointsRaw = Mat(triangulated.rows, 3, CV_32FC1);
+			convertPointsFromHomogeneous(triangulated.reshape(4), reconstructedPointsRaw.reshape(3));
+			reconstructedPoints.push_back(reconstructedPointsRaw);
+			cout << reconstructedPoints.rows << " points" << endl;
+			frameStep += 1;
+		} else if (frameStep > 1) {
+			frameStep -= 1;
+		}
+		cout << "Step: " << frameStep << endl;
+		
+		Mat projected = bundles * projection[i%2].t();
+		for (int j=0; j<bundleCount; j++) {
+			if (bundlesEnabled[j].count(frameNo)) {
+				float *point = projected.ptr<float>(j);
+				float pointX = point[0]/point[2], pointY = point[1]/point[2];
+				float radiusSquared = pointX*pointX + pointY*pointY, distortionFactor = (1 + lensDistortion[0]*radiusSquared + lensDistortion[1]*radiusSquared*radiusSquared);
 				pointX /= distortionFactor;
-				pointY /= distortionFactor;*/
-				circle(frame, Point(pointX*width*0.5 + centerX, height - pointY*height*0.5 - centerY), 1, Scalar(0,255,0), -1, 8);
+				pointY /= distortionFactor;
+				circle(frame, cv::Point(width*(0.5 + pointX*0.5), height * (0.5 - pointY*0.5)), 3, Scalar(0,0,255), -1, 8);
 			}
 		}
 		
-		for (int i=0; i<points[1].size(); i++){
-			if (status[0][i])
-				line(frame, points[0][i], points[1][i], Scalar(255,255,0), 1, CV_AA, 0);
-			if (status[1][i])
-				line(frame, points[1][i], points[2][i], Scalar(255,255,0), 1, CV_AA, 0);
+		for (int j=0; j < points.rows; j++){
+			if (status[j] && err[j] <= 1.5*minError) {
+				float ax = rp.at<float>(0,j), ay = rp.at<float>(1,j), bx = prp.at<float>(0,j), by = prp.at<float>(1,j);
+				float radiusSquared = ax*ax + ay*ay, distortionFactor = (1 + lensDistortion[0]*radiusSquared + lensDistortion[1]*radiusSquared*radiusSquared);
+				ax = width * (0.5 + ax*0.5/distortionFactor); ay = height * (0.5 - ay*0.5/distortionFactor);
+				radiusSquared = bx*bx + by*by; distortionFactor = (1 + lensDistortion[0]*radiusSquared + lensDistortion[1]*radiusSquared*radiusSquared);
+				bx = width * (0.5 + bx*0.5/distortionFactor); by = height * (0.5 - by*0.5/distortionFactor);
+				line(frame, cv::Point(ax, ay), cv::Point(bx, by), Scalar(255,255,0), 1, CV_AA, 0);
+			}
 		}
-		for (char i=0; i<3; i++){
-			points[i].clear();
-		}
-		
-		imshow(windowName, frame);
-		cit ++;
+
+		const double pyr_scale = 0.5, poly_sigma = 1.5;
+		const int levels = 5, winsize = 3, iterations = 100, poly_n = 7, flags = 0;
+		Mat flow;
+		cv::calcOpticalFlowFarneback(gray[0], gray[1], flow, pyr_scale, levels, winsize, iterations, poly_n, poly_sigma, flags);
+		Mat bgr(flow.rows, flow.cols, CV_32FC3);
+		int from_to[] = {-1,0, 0,1, 1,2};
+		mixChannels(&flow, 1, &bgr, 1, from_to, 3);
+		imshow(windowName, bgr);
+		cit += frameStep;
 		char c = cvWaitKey(delay);
 	  if (c == 27)
 		  break;
 		else if (c > 0)
-			c = cvWaitKey(10000);
+			c = cvWaitKey(100000);
 	  if (c == 27)
 		  break;
 	}
+	
+	Mat indices = alphaShapeIndices(reconstructedPoints);
+	cout << reconstructedPoints.rows << " points converted to " << indices.rows << " facets" << endl;
+	std::ofstream os("test_reader.obj");
+	for(int i=1; i <= reconstructedPoints.rows; i ++) {
+		const float* row = reconstructedPoints.ptr<float>(i-1);
+		os << "v " << row[0] << ' ' << row[1] << ' ' << row[2] << std::endl;
+	}
+	for (int i=0; i < indices.rows; i++){
+		const int32_t* row = indices.ptr<int32_t>(i);
+		os << "f " << row[0]+1 << ' ' << row[1]+1 << ' ' << row[2]+1 << std::endl;
+	}
+	os.close();
 	return 0;
 }
