@@ -2,17 +2,16 @@
 #include <CGAL/Delaunay_triangulation_3.h>
 #include <CGAL/Alpha_shape_3.h>
 
-#include <opencv2/core/core.hpp>
-
 #include <vector>
 #include <map>
 
-#ifndef TEST_BUILD
-#include "recon.hpp"
+#ifdef TEST_BUILD
+	#include <iostream>
+	#include <fstream>
+	#include <opencv2/core/core.hpp>
+	typedef cv::Mat Mat;
 #else
-typedef cv::Mat Mat;
-#include <iostream>
-#include <fstream>
+	#include "recon.hpp"
 #endif
 
 typedef CGAL::Exact_predicates_inexact_constructions_kernel Gt;
@@ -31,11 +30,13 @@ typedef Alpha_shape_3::Alpha_iterator Alpha_iterator;
 
 Mat alphaShapeIndices(Mat points)
 {
+	if (points.rows == 0 || points.cols == 0)
+		return Mat(0, 3, CV_32SC1);
 	std::vector<Point> lp;
 	std::map<Point, int> vertex_indices;
 	for (int i = 0; i < points.rows; i++) {
 		const float* cvPoint = points.ptr<float>(i);
-		Point p(cvPoint[0], cvPoint[1], cvPoint[2]);
+		Point p(cvPoint[0]/cvPoint[3], cvPoint[1]/cvPoint[3], cvPoint[2]/cvPoint[3]);
 		vertex_indices[p] = i;
 		lp.push_back(p);
 	}
@@ -74,8 +75,9 @@ int main()
 	cv::Point3f point;
 	for(int i=1; i <= n; i ++) {
 		is >> point.x >> point.y >> point.z;
-		os << "v " << point.x << ' ' << point.y << ' ' << point.z << std::endl;
 		points.push_back(point);
+		const float* row = points.ptr<float>(i-1);
+		os << "v " << row[0] << ' ' << row[1] << ' ' << row[2] << std::endl;
 	}
 	is.close();
 	Mat alphaShape = alphaShapeIndices(points);

@@ -3,6 +3,9 @@
 
 #include <opencv2/core/core.hpp>
 #include <list>
+#include <vector>
+#include <utility>
+
 typedef cv::Mat Mat;
 typedef std::list<Mat> MatList;
 
@@ -16,8 +19,9 @@ Mat alphaShapeIndices(const Mat points);
 Mat calculateFlow(const Mat prev, const Mat next);
 
 // util.cpp
-Mat triangulatePixels(const MatList flows, const MatList cameras, const Mat depth); //mělo by to jako poslední kanál zaznamenávat chybovou míru, aspoň nějak urvat
+Mat triangulatePixels(const MatList flows, const Mat mainCamera, const MatList cameras, const Mat depth); //mělo by to jako poslední kanál zaznamenávat chybovou míru, aspoň nějak urvat
 void saveImage(const Mat image, const char *fileName);
+void saveImage(const Mat image, const char *fileName, bool normalize);
 void saveMesh(const Mat points, const Mat indices, const char *fileName);
 void addChannel(MatList dest, const Mat src);
 
@@ -27,8 +31,15 @@ class Configuration {
 		Configuration(int argc, char** argv);
 		~Configuration();
 		Mat reconstructedPoints();
-		Mat frame(int number);
-		Mat camera(int number);
+		const Mat frame(int number);
+		const Mat camera(int number);
+		const int frameCount();
+	protected:
+		std::vector <Mat> frames;
+		std::vector <Mat> cameras;
+		Mat bundles;
+		std::vector <float> lensDistortion;
+		float centerX, centerY;
 };
 
 // render_<whatever>.cpp
@@ -42,16 +53,22 @@ class Render {
 Render *spawnRender(Heuristic hint);
 
 // heuristic.cpp
+typedef std::pair <int, std::vector <int> > numberedVector;
 class Heuristic {
 	public:
-		Heuristic(Configuration config);
+		Heuristic(Configuration *iconfig);
 		void chooseCameras();
-		bool notHappy(Mat points);
+		bool notHappy(const Mat points);
 		int beginMain(); // initialize and return frame number for first main camera
 		int nextMain(); // return frame number for next main camera
-		int beginSide(); // initialize and return frame number for first side camera
-		int nextSide(); // return frame number for next side camera
+		int beginSide(int mainNumber); // initialize and return frame number for first side camera
+		int nextSide(int mainNumber); // return frame number for next side camera
 		void filterPoints(Mat points);
 		static const int sentinel = -1;
+	protected:
+		Configuration *config;
+		int iteration;
+		int mainIdx, sideIdx;
+		std::vector <numberedVector> chosenCameras;
 };
 #endif

@@ -8,7 +8,7 @@ bl_info = {
     "name": "Export Tracks",
     "author": "Addam Dominec",
     "version": (0, 1),
-    "blender": (2, 6, 3),
+    "blender": (2, 6, 5),
     "location": "File > Export",
     "description": "Exports camera calibration and tracked bundles from video clip",
     "warning": "",
@@ -17,17 +17,12 @@ bl_info = {
     "category": "Import-Export"}
 
 
-def PerspectiveMatrix(fovx, aspect, near=0.1, far=100.0):
-    near = 0.5
-    right = fovx * 0.5 * near
-    left = -right
-    top = float(right / aspect)
-    bottom = -top
-    return mathutils.Matrix([
-      [(2.0 * near)/float(right - left), 0.0, float(right + left)/float(right - left), 0.0],
-      [0.0, (2.0 * near)/float(top - bottom), float(top + bottom)/float(top - bottom), 0.0],
-      [0.0, 0.0, -float(far + near)/float(far - near), -(2.0 * far * near)/float(far - near)],
-      [0.0, 0.0, -1.0, 0.0]])
+def PerspectiveMatrix(fovx, aspect, near=0.1, far=1000.0):
+	return mathutils.Matrix([
+		[-2/fovx, 0, 0, 0],
+		[0, -2*aspect/fovx, 0, 0],
+		[0, 0, (far+near)/(far-near), (2*far*near)/(far-near)],
+		[0, 0, -1, 0]])
 
 def write_tracks(context, filepath, include_hidden):
 	f = open(filepath, 'w', encoding='utf-8')
@@ -51,16 +46,38 @@ def write_tracks(context, filepath, include_hidden):
 					distortion=[tr.camera.k1, tr.camera.k2, tr.camera.k3],
 					center_x=tr.camera.principal[0],
 					center_y=tr.camera.principal[1]))
-	persp = PerspectiveMatrix(fovx=fov, aspect=clip.size[0]/clip.size[1])
 	f.write("camera:\n")
+	pout = open("points.txt", "w+")
 	for camera in tr.reconstruction.cameras:
-		f.write(" frame-{frame}: !!opencv-matrix\n"
-		        "  rows: 4\n"
-	          "  cols: 4\n"
-	          "  dt: f\n"
-	          "  data: [ {data}]\n".format(
+		translation = camera.matrix.translation
+		direction = camera.matrix * mathutils.Vector((0,0,-1,1))
+		direction = direction.xyz/direction.w
+		direction -= translation
+		direction.normalize()
+		distances = [(track.bundle - translation).dot(direction) for track in tr.tracks if include_hidden or not track.hide]
+		near, far = min(d for d in distances if d > 0), max(distances)
+		persp = PerspectiveMatrix(fovx=fov, aspect=clip.size[0]/clip.size[1], near=near, far=far)
+		cam = persp*camera.matrix.inverted()
+		pout.write("Frame {}, near {}, far {}:\n".format(camera.frame, near, far))
+		for track in tr.tracks:
+			bundle4 = track.bundle.to_4d()
+			bundle4 = cam * bundle4
+			pout.write(str(bundle4.xyz / bundle4.w))
+			pout.write("\n")
+		f.write(" - frame: {frame}\n"
+						"   projection: !!opencv-matrix\n"
+		        "    rows: 4\n"
+	          "    cols: 4\n"
+	          "    dt: f\n"
+	          "    data: [ {projection}]\n"
+	          "   position: !!opencv-matrix\n"
+	          "    rows: 4\n"
+	          "    cols: 1\n"
+	          "    dt: f\n"
+	          "    data: [ {position}]\n".format(
 	          frame=camera.frame,
-	          data=", ".join(str(val) for val in chain(*(persp*camera.matrix.inverted())))
+	          projection=", ".join(str(val) for val in chain(*cam)),
+	          position = ", ".join(str(val) for val in camera.matrix.translation.to_4d())
 	         ))
 			#camera.average_error, frame, matrix
 	f.write("tracks:\n")
