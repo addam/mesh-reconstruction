@@ -265,6 +265,7 @@ Mat RenderGLX::depth(const Mat camera) {
 	glReadBuffer(GL_DEPTH_ATTACHMENT);
 	glReadPixels(0, 0, imgw, imgh, GL_DEPTH_COMPONENT, GL_FLOAT, result.data);
 	cv::flip(result, result, 0);
+	result = 2*result - 1;
 	return result;
 }
 

@@ -20,6 +20,7 @@ Mat calculateFlow(const Mat prev, const Mat next);
 
 // util.cpp
 Mat triangulatePixels(const MatList flows, const Mat mainCamera, const MatList cameras, const Mat depth); //mělo by to jako poslední kanál zaznamenávat chybovou míru, aspoň nějak urvat
+void mixBackground(Mat image, const Mat background, const Mat depth);
 void saveImage(const Mat image, const char *fileName);
 void saveImage(const Mat image, const char *fileName, bool normalize);
 void saveMesh(const Mat points, const Mat indices, const char *fileName);
@@ -31,12 +32,15 @@ class Configuration {
 		Configuration(int argc, char** argv);
 		~Configuration();
 		Mat reconstructedPoints();
-		const Mat frame(int number);
-		const Mat camera(int number);
+		const Mat frame(int frameNo);
+		const Mat camera(int frameNo);
+		const float near(int frameNo);
+		const float far(int frameNo);
 		const int frameCount();
 	protected:
 		std::vector <Mat> frames;
 		std::vector <Mat> cameras;
+		std::vector <float> nearVals, farVals;
 		Mat bundles;
 		std::vector <float> lensDistortion;
 		float centerX, centerY;

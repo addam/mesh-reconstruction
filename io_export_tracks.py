@@ -7,8 +7,9 @@ from itertools import chain
 bl_info = {
     "name": "Export Tracks",
     "author": "Addam Dominec",
-    "version": (0, 1),
+    "version": (0, 2),
     "blender": (2, 6, 5),
+		"api": 51791,
     "location": "File > Export",
     "description": "Exports camera calibration and tracked bundles from video clip",
     "warning": "",
@@ -21,7 +22,7 @@ def PerspectiveMatrix(fovx, aspect, near=0.1, far=1000.0):
 	return mathutils.Matrix([
 		[-2/fovx, 0, 0, 0],
 		[0, -2*aspect/fovx, 0, 0],
-		[0, 0, (far+near)/(far-near), (2*far*near)/(far-near)],
+		[0, 0, -(far+near)/(far-near), -(2*far*near)/(far-near)],
 		[0, 0, -1, 0]])
 
 def write_tracks(context, filepath, include_hidden):
@@ -47,24 +48,14 @@ def write_tracks(context, filepath, include_hidden):
 					center_x=tr.camera.principal[0],
 					center_y=tr.camera.principal[1]))
 	f.write("camera:\n")
-	pout = open("points.txt", "w+")
 	for camera in tr.reconstruction.cameras:
-		translation = camera.matrix.translation
-		direction = camera.matrix * mathutils.Vector((0,0,-1,1))
-		direction = direction.xyz/direction.w
-		direction -= translation
-		direction.normalize()
-		distances = [(track.bundle - translation).dot(direction) for track in tr.tracks if include_hidden or not track.hide]
+		cam_inv = camera.matrix.inverted()
+		distances = [-(track.bundle * cam_inv).z for track in tr.tracks if include_hidden or not track.hide]
 		near, far = min(d for d in distances if d > 0), max(distances)
 		persp = PerspectiveMatrix(fovx=fov, aspect=clip.size[0]/clip.size[1], near=near, far=far)
-		cam = persp*camera.matrix.inverted()
-		pout.write("Frame {}, near {}, far {}:\n".format(camera.frame, near, far))
-		for track in tr.tracks:
-			bundle4 = track.bundle.to_4d()
-			bundle4 = cam * bundle4
-			pout.write(str(bundle4.xyz / bundle4.w))
-			pout.write("\n")
 		f.write(" - frame: {frame}\n"
+						"   near: {near}\n"
+						"   far: {far}\n"
 						"   projection: !!opencv-matrix\n"
 		        "    rows: 4\n"
 	          "    cols: 4\n"
@@ -75,8 +66,8 @@ def write_tracks(context, filepath, include_hidden):
 	          "    cols: 1\n"
 	          "    dt: f\n"
 	          "    data: [ {position}]\n".format(
-	          frame=camera.frame,
-	          projection=", ".join(str(val) for val in chain(*cam)),
+	          frame=camera.frame, near=near, far=far,
+	          projection=", ".join(str(val) for val in chain(*(persp * cam_inv))),
 	          position = ", ".join(str(val) for val in camera.matrix.translation.to_4d())
 	         ))
 			#camera.average_error, frame, matrix

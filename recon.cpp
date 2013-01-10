@@ -9,10 +9,10 @@ int main(int argc, char ** argv) {
 	Render *render = spawnRender(hint);
 	Mat points = config.reconstructedPoints();
 	
+	Mat indices = alphaShapeIndices(points); // FIXME DEBUG FAIL WTF
 	while (hint.notHappy(points)) {
 		//sestav z nich alphashape
-		Mat indices = alphaShapeIndices(points);
-		printf("converted %i %id points into %i facet indices\n", points.rows, points.cols, indices.rows);
+		printf("converted %i %id points into %i face indices\n", points.rows, points.cols, indices.rows);
 		render->loadMesh(points, indices);
 
 		hint.chooseCameras();
@@ -36,26 +36,29 @@ int main(int argc, char ** argv) {
 			MatList flows, cameras;
 			for (int fb = hint.beginSide(fa); fb != Heuristic::sentinel; fb = hint.nextSide(fa)) {
 				Mat projectedImage = render->projected(config.camera(fa), config.frame(fb), config.camera(fb));
+				mixBackground(projectedImage, originalImage, depth);
 				//nahrubo ulož výsledek
 				snprintf(filename, 300, "frame%ifrom%ip.png", fa, fb);
 				saveImage(projectedImage, filename); //DEBUG
 				Mat flow = calculateFlow(originalImage, projectedImage);
+				mixBackground(flow, Mat::zeros(flow.rows, flow.cols, CV_32FC2), depth);
 				snprintf(filename, 300, "frame%ifrom%if.png", fa, fb);
-				Mat bgr(flow.rows, flow.cols, CV_32FC3);
-				int from_to[] = {-1,0, 0,1, 1,2};
-				mixChannels(&flow, 1, &bgr, 1, from_to, 3);
-				saveImage(bgr, filename);
+				saveImage(flow, filename, true);
 				flows.push_back(flow);
 				cameras.push_back(config.camera(fb));
+				break;
 			}
 			//trianguluj všechny pixely
 			points.push_back(triangulatePixels(flows, config.camera(fa), cameras, depth));
+			printf("%i points\n", points.rows);
+			break;
 		}
 		hint.filterPoints(points);
 	}
 	delete render;
 	//vysypej triangulované body jako obj
 	//Mat indices = alphaShapeIndices(points);
-	//saveMesh(points, indices, "triangulated.obj");
+	//printf("%i faces\n", indices.rows);
+	saveMesh(points, indices, "triangulated.obj");
 	return 0;
 }

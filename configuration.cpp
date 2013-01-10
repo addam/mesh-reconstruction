@@ -17,6 +17,9 @@ Configuration::Configuration(int argc, char** argv)
 	nodeClip["center-y"] >> centerY;
 	nodeClip["distortion"] >> lensDistortion;
 	
+	VideoCapture clip(clipPath);
+	int frameCount = clip.get(CV_CAP_PROP_FRAME_COUNT);
+
 	FileNode tracks = fs["tracks"];
 	bundles = Mat(0, 4, CV_32FC1);
 	std::vector< std::set<int> > bundlesEnabled;
@@ -33,20 +36,21 @@ Configuration::Configuration(int argc, char** argv)
 	//bundles = bundles.t();
 
 	FileNode camera = fs["camera"];
-	int i = 0;
+	cameras.resize(frameCount);
+	nearVals.resize(frameCount);
+	farVals.resize(frameCount);
 	for (FileNodeIterator cit = camera.begin(); cit != camera.end(); cit ++)	{
 		int frame;
 		(*cit)["frame"] >> frame;
+		assert (frame > 0 && frame <= frameCount);
+		(*cit)["near"] >> nearVals[frame-1];
+		(*cit)["far"] >> farVals[frame-1];
 		//undistort?
-		Mat camera;
-		(*cit)["projection"] >> camera;
-		cameras.push_back(camera); //FIXME: cameras[frame-1] = camera;
+		(*cit)["projection"] >> cameras[frame-1];
 	}
 	
-	// read and cache the whole clip
-	VideoCapture clip(clipPath);
-	int frameCount = clip.get(CV_CAP_PROP_FRAME_COUNT);
 	frames.resize(frameCount);
+	// read and cache the whole clip
 	for (int fi = 0; fi < frameCount; fi++) {
 		Mat frame;
 		//Mat *value = new Mat;
@@ -66,14 +70,24 @@ Mat Configuration::reconstructedPoints()
 	return bundles;
 }
 
-const Mat Configuration::frame(int number)
+const Mat Configuration::frame(int frameNo)
 {
-	return frames[number];
+	return frames[frameNo];
 }
 
-const Mat Configuration::camera(int number)
+const Mat Configuration::camera(int frameNo)
 {
-	return cameras[number];
+	return cameras[frameNo];
+}
+
+const float Configuration::near(int frameNo)
+{
+	return nearVals[frameNo];
+}
+
+const float Configuration::far(int frameNo)
+{
+	return farVals[frameNo];
 }
 
 const int Configuration::frameCount()
