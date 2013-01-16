@@ -33,7 +33,7 @@ test_reader: test_reader.cpp alpha_shapes.o
 
 test: recon
 	rm frame*.png || true
-	./recon tracks/zatisi1.yaml
+	./recon tracks/zatisi.yaml
 
 test_alpha_shapes: alpha_shapes.cpp
 	${CXX} ${CXXFLAGS} alpha_shapes.cpp -frounding-math -O2 ${ALPHA_SHAPES_LIBS} -lopencv_core -DTEST_BUILD -o test_alpha_shapes

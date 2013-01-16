@@ -30,6 +30,11 @@ typedef Alpha_shape_3::Alpha_iterator Alpha_iterator;
 
 Mat alphaShapeIndices(Mat points)
 {
+	return alphaShapeIndices(points, NULL);
+}
+
+Mat alphaShapeIndices(Mat points, float *alpha)
+{
 	if (points.rows == 0 || points.cols == 0)
 		return Mat(0, 3, CV_32SC1);
 	std::vector<Point> lp;
@@ -45,6 +50,8 @@ Mat alphaShapeIndices(Mat points)
   Alpha_iterator opt = as.find_optimal_alpha(1);
   as.set_alpha(*opt);
   assert(as.number_of_solid_components() == 1);
+  if (alpha != NULL)
+	  *alpha = *opt;
 
   std::vector<Facet> facets;
   as.get_alpha_shape_facets(back_inserter(facets), Alpha_shape_3::REGULAR);

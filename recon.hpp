@@ -14,6 +14,7 @@ class Heuristic;
 
 // alpha_shapes.cpp
 Mat alphaShapeIndices(const Mat points);
+Mat alphaShapeIndices(const Mat points, float *alpha); //'alpha' is currently just written to, not used
 
 // flow.cpp
 Mat calculateFlow(const Mat prev, const Mat next);
@@ -68,11 +69,13 @@ class Heuristic {
 		int beginSide(int mainNumber); // initialize and return frame number for first side camera
 		int nextSide(int mainNumber); // return frame number for next side camera
 		void filterPoints(Mat points);
+		void logAlpha(float alpha);
 		static const int sentinel = -1;
 	protected:
 		Configuration *config;
 		int iteration;
 		int mainIdx, sideIdx;
 		std::vector <numberedVector> chosenCameras;
+		std::vector <float> alphaVals;
 };
 #endif

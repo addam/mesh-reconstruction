@@ -1,6 +1,7 @@
 #include "recon.hpp"
 #include <stdio.h> //DEBUG
 #include <string.h> //DEBUG
+#include <opencv2/imgproc/imgproc.hpp>
 
 int main(int argc, char ** argv) {
 	//načti všechny body
@@ -9,9 +10,11 @@ int main(int argc, char ** argv) {
 	Render *render = spawnRender(hint);
 	Mat points = config.reconstructedPoints();
 	
-	Mat indices = alphaShapeIndices(points); // FIXME DEBUG FAIL WTF
 	while (hint.notHappy(points)) {
 		//sestav z nich alphashape
+		float alpha;
+		Mat indices = alphaShapeIndices(points, &alpha);
+		hint.logAlpha(alpha);
 		printf("converted %i %id points into %i face indices\n", points.rows, points.cols, indices.rows);
 		render->loadMesh(points, indices);
 
@@ -44,21 +47,29 @@ int main(int argc, char ** argv) {
 				mixBackground(flow, Mat::zeros(flow.rows, flow.cols, CV_32FC2), depth);
 				snprintf(filename, 300, "frame%ifrom%if.png", fa, fb);
 				saveImage(flow, filename, true);
+				
+				Mat other(flow.rows, flow.cols, CV_32FC2);
+				flow.copyTo(other);
+				for (int x=0; x < flow.cols; x++) other.col(x) += cv::Scalar(x, 0);
+				for (int y=0; y < flow.rows; y++) other.row(y) += cv::Scalar(0, y);
+				Mat remapped;
+				cv::remap(projectedImage, remapped, other, Mat(), CV_INTER_CUBIC);
+				snprintf(filename, 300, "frame%ifrom%ir.png", fa, fb);
+				saveImage(remapped, filename);
+				
 				flows.push_back(flow);
 				cameras.push_back(config.camera(fb));
-				break;
 			}
 			//trianguluj všechny pixely
 			points.push_back(triangulatePixels(flows, config.camera(fa), cameras, depth));
 			printf("%i points\n", points.rows);
-			break;
 		}
 		hint.filterPoints(points);
 	}
 	delete render;
 	//vysypej triangulované body jako obj
-	//Mat indices = alphaShapeIndices(points);
-	//printf("%i faces\n", indices.rows);
+	Mat indices = alphaShapeIndices(points);
+	printf("%i faces\n", indices.rows);
 	saveMesh(points, indices, "triangulated.obj");
 	return 0;
 }

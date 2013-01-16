@@ -6,6 +6,11 @@
 
 const float backgroundDepth = 1.0;
 
+const inline float pow2(float x)
+{
+	return x*x;
+}
+
 const Mat removeProjectionZ(const Mat projection)
 {
 	Mat result = Mat(projection.rowRange(0,2));
@@ -100,7 +105,7 @@ void saveImage(const Mat image, const char *fileName, bool normalize)
 		double min, max;
 		image.reshape(1);
 		minMaxIdx(image, &min, &max);
-		printf("writing normalized image, min: %f, max: %f\n", min, max);
+		// DEBUG printf("writing normalized image, min: %f, max: %f\n", min, max);
 		if (max == min)
 			cv::imwrite(fileName, image);
 		else {
