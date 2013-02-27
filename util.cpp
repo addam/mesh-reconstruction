@@ -6,11 +6,6 @@
 
 const float backgroundDepth = 1.0;
 
-const inline float pow2(float x)
-{
-	return x*x;
-}
-
 const Mat removeProjectionZ(const Mat projection)
 {
 	Mat result = Mat(projection.rowRange(0,2));

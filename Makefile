@@ -2,7 +2,7 @@ SYSTEM_OPENGL = glx
 CXX = g++
 CXXFLAGS = -g
 
-OPENCV_LIBS = -lopencv_core -lopencv_calib3d -lopencv_video -lopencv_highgui -lopencv_imgproc
+OPENCV_LIBS = -lopencv_core -lopencv_calib3d -lopencv_video -lopencv_highgui -lopencv_imgproc -lopencv_flann
 ALPHA_SHAPES_LIBS = -lCGAL -lboost_thread -lgmp
 RENDER_glx_LIBS = -lGL -lGLEW -lopencv_highgui
 
@@ -44,7 +44,7 @@ test_glx: render_glx.cpp shaders.hpp
 	./glx
 
 sandbox: sandbox.cpp
-	${CXX} ${CXXFLAGS} sandbox.cpp -lopencv_core -lopencv_gpu -lopencv_contrib -lopencv_legacy -lopencv_objdetect -lopencv_calib3d -lopencv_features2d -lopencv_video -lopencv_highgui -lopencv_ml -lopencv_imgproc -lopencv_flann -o sandbox
+	${CXX} ${CXXFLAGS} sandbox.cpp -lopencv_core -lopencv_contrib -lopencv_legacy -lopencv_objdetect -lopencv_calib3d -lopencv_features2d -lopencv_video -lopencv_highgui -lopencv_ml -lopencv_imgproc -lopencv_flann -o sandbox
 
 clean:
 	rm recon *.o shaders.hpp

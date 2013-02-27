@@ -68,7 +68,7 @@ class Heuristic {
 		int nextMain(); // return frame number for next main camera
 		int beginSide(int mainNumber); // initialize and return frame number for first side camera
 		int nextSide(int mainNumber); // return frame number for next side camera
-		void filterPoints(Mat points);
+		void filterPoints(Mat& points);
 		void logAlpha(float alpha);
 		static const int sentinel = -1;
 	protected:
