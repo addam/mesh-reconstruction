@@ -16,6 +16,7 @@ int main(int argc, char ** argv) {
 		Mat indices = alphaShapeIndices(points, &alpha);
 		hint.logAlpha(alpha);
 		printf("converted %i %id points into %i face indices\n", points.rows, points.cols, indices.rows);
+		saveMesh(points, indices, "recon_orig.obj");
 		render->loadMesh(points, indices);
 
 		hint.chooseCameras();

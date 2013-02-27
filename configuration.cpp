@@ -39,19 +39,29 @@ Configuration::Configuration(int argc, char** argv)
 	cameras.resize(frameCount);
 	nearVals.resize(frameCount);
 	farVals.resize(frameCount);
+	int trackedFrameCount = -1;
 	for (FileNodeIterator cit = camera.begin(); cit != camera.end(); cit ++)	{
 		int frame;
 		(*cit)["frame"] >> frame;
 		assert (frame > 0 && frame <= frameCount);
-		(*cit)["near"] >> nearVals[frame-1];
-		(*cit)["far"] >> farVals[frame-1];
+		frame -= 1;
+		(*cit)["near"] >> nearVals[frame];
+		(*cit)["far"] >> farVals[frame];
 		//undistort?
-		(*cit)["projection"] >> cameras[frame-1];
+		(*cit)["projection"] >> cameras[frame];
+		if (trackedFrameCount <= frame)
+			trackedFrameCount = frame+1;
 	}
+	for (int i=0; i<trackedFrameCount; i++) {
+		assert (nearVals[i] > 0 && farVals[i] > 0);
+	}
+	cameras.resize(trackedFrameCount);
+	nearVals.resize(trackedFrameCount);
+	farVals.resize(trackedFrameCount);
 	
-	frames.resize(frameCount);
+	frames.resize(trackedFrameCount);
 	// read and cache the whole clip
-	for (int fi = 0; fi < frameCount; fi++) {
+	for (int fi = 0; fi < trackedFrameCount; fi++) {
 		Mat frame;
 		//Mat *value = new Mat;
 		clip.read(frame);

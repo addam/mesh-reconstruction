@@ -221,7 +221,9 @@ Mat RenderGLX::projected(const Mat camera, const Mat frame, const Mat projector)
 	glUniformMatrix4fv(sideMatrixID, 1, GL_TRUE, (float*)projector.data);
 
 	glActiveTexture(GL_TEXTURE0);
-	GLuint texture = createTexture(frame);
+	Mat flippedTex;
+	cv::flip(frame, flippedTex, -1);
+	GLuint texture = createTexture(flippedTex);
 	glBindTexture(GL_TEXTURE_2D, texture);
 	// Set our "myTextureSampler" sampler to user Texture Unit 0
 	glUniform1i(textureSamplerID, 0);
@@ -240,7 +242,7 @@ Mat RenderGLX::projected(const Mat camera, const Mat frame, const Mat projector)
 	glReadBuffer(GL_COLOR_ATTACHMENT0);
 	glReadPixels(0, 0, imgw, imgh, GL_RGB, GL_UNSIGNED_BYTE, result.data);
 	glDeleteTextures(1, &texture);
-	cv::flip(result, result, 0);
+	cv::flip(result, result, 1);
 	return result;
 }	
 
@@ -264,7 +266,7 @@ Mat RenderGLX::depth(const Mat camera) {
 	Mat result(imgh, imgw, CV_32FC1);
 	glReadBuffer(GL_DEPTH_ATTACHMENT);
 	glReadPixels(0, 0, imgw, imgh, GL_DEPTH_COMPONENT, GL_FLOAT, result.data);
-	cv::flip(result, result, 0);
+	cv::flip(result, result, 1);
 	result = 2*result - 1;
 	return result;
 }

@@ -5,7 +5,7 @@
 Mat calculateFlow(Mat prev, Mat next)
 {
 	double pyr_scale = 0.5, poly_sigma = 1.5;
-	int levels = 3, winsize = 50, iterations = 50, poly_n = 9, flags = cv::OPTFLOW_FARNEBACK_GAUSSIAN;
+	int levels = 3, winsize = 50, iterations = 150, poly_n = 9, flags = cv::OPTFLOW_FARNEBACK_GAUSSIAN;
 	Mat flow;
 	Mat prev_gray, next_gray;
 	cv::cvtColor(prev,prev_gray,CV_RGB2GRAY);
@@ -19,7 +19,6 @@ Mat calculateFlow(Mat prev, Mat next)
 	poly_n = 3;
 	winsize = 20;
 //	cv::calcOpticalFlowFarneback(prev_gray, next_gray, flow, pyr_scale, levels, winsize, iterations, poly_n, poly_sigma, flags);
-//	flow /= 4.0;
 	return flow;
 }
 /*Mat calculateFlowSF(Mat prev, Mat next)
