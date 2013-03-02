@@ -13,6 +13,21 @@ const Mat removeProjectionZ(const Mat projection)
 	return result;
 }
 
+Mat dehomogenize(const Mat points)
+{
+	Mat result = Mat(points.rows, 3, CV_32FC1);
+	const float *inp;
+	float *out;
+	for (int i=0; i<points.rows; i++) {
+		inp = points.ptr<float>(i);
+		out = result.ptr<float>(i);
+		out[0] = inp[0] / inp[3];
+		out[1] = inp[1] / inp[3];
+		out[2] = inp[2] / inp[3];
+	}
+	return result;
+}
+
 Mat triangulatePixels(const MatList flows, const Mat mainCamera, const MatList cameras, const Mat depth)
 {
 	MatList guesses;

@@ -6,23 +6,24 @@
 int main(int argc, char ** argv) {
 	//načti všechny body
 	Configuration config = Configuration(argc, argv);
-	printf("Loaded configuration and video clip\n");
+	printf(" Loaded configuration and video clip\n");
 	Heuristic hint(&config);
 	Render *render = spawnRender(hint);
 	Mat points = config.reconstructedPoints();
-	printf("Loaded %i points\n", points.rows);
+	printf(" Loaded %i points\n", points.rows);
 	
 	while (hint.notHappy(points)) {
 		//sestav z nich alphashape
 		float alpha;
 		printf("Calculating alpha shape...\n");
 		Mat indices = alphaShapeIndices(points, &alpha);
-		printf("%i faces\n", indices.rows);
+		printf(" %i faces.\n", indices.rows);
 		hint.logAlpha(alpha);
 		saveMesh(points, indices, "recon_orig.obj");
 		render->loadMesh(points, indices);
 
 		hint.chooseCameras();
+		printf("Tracking the whole clip...\n");
 		for (int fa = hint.beginMain(); fa != Heuristic::sentinel; fa = hint.nextMain()) {
 			//vyber náhodné dva snímky
 			//promítni druhý do kamery prvního
@@ -66,16 +67,17 @@ int main(int argc, char ** argv) {
 			}
 			//trianguluj všechny pixely
 			points.push_back(triangulatePixels(flows, config.camera(fa), cameras, depth));
-			printf("%i points\n", points.rows);
+			printf(" After processing main frame %i: %i points\n", fa, points.rows);
 		}
 		hint.filterPoints(points);
-		printf("%i filtered points\n", points.rows);
+		printf(" %i filtered points\n", points.rows);
 	}
 	delete render;
 	//vysypej triangulované body jako obj
 	printf("Calculating final alpha shape...\n");
 	Mat indices = alphaShapeIndices(points);
-	printf("%i faces\n", indices.rows);
+	printf(" %i faces\n", indices.rows);
 	saveMesh(points, indices, "triangulated.obj");
+	printf(" Saved, done.\n");
 	return 0;
 }

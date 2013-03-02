@@ -1,7 +1,8 @@
 #include <opencv2/flann/flann.hpp>
 #include "recon.hpp"
 
-typedef cv::flann::L2<float> Distance;
+typedef cvflann::L2_Simple<float> Distance;
+typedef std::pair<int, float> Neighbor;
 
 Heuristic::Heuristic(Configuration *iconfig)
 {
@@ -20,80 +21,96 @@ const inline float pow2(float x)
 	return x * x;
 }
 
+const inline float densityFn(float dist, float radius)
+{
+	return (1. - dist/radius);
+}
+
 void Heuristic::filterPoints(Mat& points)
 {
-	printf("Filtering...\n");
+	printf("Filtering: Preparing neighbor table...\n");
 	int pointCount = points.rows;
-	Mat points3(pointCount, 3, CV_32F);
-	for (int i=0; i<pointCount; i++) {
-		points.row(i).colRange(0,3).copyTo(points3.row(i));
-		points3.row(i) /= points.at<float>(i, 3);
-	}
+	Mat points3 = dehomogenize(points);
 	
-	cv::flann::GenericIndex<Distance> index = cv::flann::GenericIndex<Distance>(points3, cvflann::KDTreeIndexParams());
-	double change = 0.;
-	const float radius = alphaVals.back()/8.;
-	cvflann::SearchParams params = cvflann::SearchParams();
-	std::vector<double> density(pointCount, 1.), densityNew(pointCount, 0.);
-	std::vector<float> distances(pointCount, 0.), point(3, 0.);
-	std::vector<int> indices(pointCount, -1), order(pointCount, -1);
-	for (int i=0; i<order.size(); i++)
-		order[i] = i;
-	int debugNeighborsTotal = 0;
-	do { //TODO: tohle je potřeba řešit nějakou řídkou maticí, nepočítat sousedy vždycky znova
-		// nejlíp to uložit všechno do velkého vektoru, a každému bodu bude patřit jeho zarážka
-		cv::randShuffle(order);
-		double avg = 1.;
+	const float radius = alphaVals.back()/4.;
+	std::vector<int> neighborBlocks(pointCount+1, 0);
+	std::vector<Neighbor> neighbors;
+	neighbors.reserve(pointCount);
+	// Připrav tabulku sousedů
+	{
+		cv::flann::GenericIndex<Distance> index = cv::flann::GenericIndex<Distance>(points3, cvflann::KDTreeIndexParams());
+		cvflann::SearchParams params;
+		std::vector<float> distances(pointCount, 0.), point(3, 0.);
+		std::vector<int> indices(pointCount, -1);
 		for (int i=0; i<pointCount; i++) {
-			int ord = order[i];
-			points3.row(ord).copyTo(point);
+			points3.row(i).copyTo(point);
 			index.radiusSearch(point, indices, distances, radius, params);
-			// přičti za každého jeho význam vážený podle vzdálenosti
-			double densityTmp = 0.;
-			for (int j=0; j<indices.size() && indices[j] >= 0; j++) {
-				if (indices[j] != ord && distances[j] < radius) {
-					densityTmp += density[indices[j]] * (1. - distances[j]/radius);
-					debugNeighborsTotal ++;
-				}
+			int writeIndex = 0;
+			neighborBlocks[i] = neighbors.size();
+			int end;
+			for (end = 0; end < indices.size() && indices[end] >= 0; end++);
+			for (int j = 0; j < end; j++) {
+				if (indices[j] < i && distances[j] <= radius) // pro zaručení symetrie se berou jen předcházející sousedi
+					neighbors.push_back(Neighbor(indices[j], densityFn(distances[j], radius)));
 				indices[j] = -1;
 			}
-			densityNew[ord] = densityTmp;
-			double coef = ((double)i)/((double)(i+1));
-			avg = avg * coef + densityTmp / ((double)(i+1));
 		}
-		change = 0.;
-		double coef = 1. / pointCount;
+	}
+	neighborBlocks[pointCount] = neighbors.size();
+	printf(" Neighbors total: %lu, %f per point.\n", neighbors.size(), ((float)neighbors.size())/pointCount);
+	
+	printf("Estimating local density...\n");
+	// Spočítej hustotu bodů v okolí každého (vlastní vektor pomocí power iteration)
+	std::vector<float> density(pointCount, 1.), densityNew(pointCount, 0.);
+	double change;
+	int densityIterationNo = 0;
+	do {
 		for (int i=0; i<pointCount; i++) {
-			densityNew[i] /= avg;
-			change += pow2(density[i] - densityNew[i]) * coef;
-			density[i] += 1.3*(densityNew[i] - density[i]); //overrelaxation
+			densityNew[i] = 0.;
 		}
-		printf("Density iteration, change: %f\n", change);
-	} while (change > 0.0002);
-	printf("Neighbors total: %i\n", debugNeighborsTotal);
-	double densityLimit = 0.0;
+		double sum = 0.;
+		for (int i=0; i<pointCount; i++) {
+			// přičti za každého souseda jeho význam vážený podle vzdálenosti
+			float densityTemp = 0.0;
+			for (int j = neighborBlocks[i]; j < neighborBlocks[i+1]; j++) {
+				densityTemp += density[neighbors[j].first] * neighbors[j].second;
+				densityNew[neighbors[j].first] += density[i] * neighbors[j].second;
+				sum += (density[i] + density[neighbors[j].first]) * neighbors[j].second;
+			}
+			densityNew[i] += densityTemp;
+		}
+		float normalizer = pointCount / sum;
+		change = 0.;
+		for (int i=0; i<pointCount; i++) {
+			float normalizedDensity = densityNew[i] * normalizer;
+			if (normalizedDensity > 2.)
+				normalizedDensity = 2.; // oříznutí -- jinak by maximální hustota dosahovala tisíců
+			change += pow2(density[i] - normalizedDensity);
+			density[i] = normalizedDensity;
+		}
+		change /= pointCount;
+		densityIterationNo += 1;
+	} while (change > 1e-6);
+	float densityLimit = 0.0;
 	for (int i=0; i<pointCount; i++) {
 		densityNew[i] = density[i];
 		if (density[i] > densityLimit)
 			densityLimit = density[i];
 	}
-	densityLimit *= 0.5;
-	printf("Density limit: %f\n", densityLimit);
+	densityLimit = 1.0;
+	printf(" Density converged in %i iterations. Limit set to: %f\n", densityIterationNo, densityLimit);
 	//projdi kandidáty od nejhustších, poznamenávej si je jako přidané a dle libovůle snižuj hustotu okolním
+	std::vector<int> order(pointCount, -1);
 	cv::sortIdx(density, order, cv::SORT_DESCENDING);
 	int writeIndex = 0;
 	for (int i=0; i<pointCount; i++) {
 		int ord = order[i];
 		if (densityNew[ord] < densityLimit)
 			continue;
-		points3.row(ord).copyTo(point);
-		index.radiusSearch(point, indices, distances, radius, params);
-		// odečti hustotu, zbav se sousedů (původní hustotu, protože nová může být záporná)
+		// odečti hustotu, zbav se sousedů (odečti původní hustotu, protože nová může být záporná)
 		double localDensity = density[ord];
-		for (int j=0; j<indices.size() && indices[j] >= 0; j++) {
-			if (indices[j] != ord && distances[j] < radius)
-				densityNew[indices[j]] -= localDensity * pow2(1 - distances[j]/radius);
-			indices[j] = -1;
+		for (int j=neighborBlocks[ord]; j<neighborBlocks[ord+1]; j++) {
+			densityNew[neighbors[j].first] -= localDensity * neighbors[j].second;
 		}
 		if (i > writeIndex)
 			order[writeIndex] = order[i];
