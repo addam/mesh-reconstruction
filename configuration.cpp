@@ -2,12 +2,67 @@
 #include <opencv2/highgui/highgui.hpp>
 
 #include <set>
-#include <stdio.h> //DEBUG
+#include <getopt.h>
+#include <stdio.h>
 using namespace cv;
 
 Configuration::Configuration(int argc, char** argv)
 {
-	FileStorage fs(((argc>1) ? argv[1]: "tracks/rotunda.yaml"), FileStorage::READ);
+	char *inFileName=NULL, *outFileName=NULL;
+	verbosity = 0;
+	doEstimateExposure = false;
+	while (1) {
+		int option_index = 0;
+		static struct option long_options[] = {
+			{"estimate-exposure", no_argument, 0,  'e' },
+			{"help",    no_argument,       0,  'h' },
+			{"input",   required_argument, 0,  'i' },
+			{"output",  required_argument, 0,  'o' },
+			{"verbose", no_argument,       0,  'v' },
+			{0,         0,                 0,  0 }
+		};
+		
+		char c = getopt_long(argc, argv, "ehi:o:v", long_options, &option_index);
+		if (c == -1)
+			break;
+		
+		switch (c) {
+			case 'e':
+				doEstimateExposure = true;
+				break;
+			
+			case 'i':
+				inFileName = optarg;
+				break;
+			
+			case 'o':
+				outFileName = optarg;
+				break;
+		
+			case 'v':
+				verbosity = 99;
+				break;
+			
+			case 'h':
+			case 0:
+			default:
+				printf("Usage: recon [OPTIONS] [INPUT_FILE]\n");
+				printf("Reconstructs dense geometry from given YAML scene calibration and video\n\n");
+				printf("  -e, --estimate-exposure   try to normalize exposure over time\n");
+				printf("  -i, --input               input YAML file name (usually exported from Blender)\n");
+				printf("  -o, --output              output Wavefront OBJ file name (.obj)\n");
+				printf("  -v, --verbose             print out messages during computation\n");
+				printf("  -h, --help                print this message and exit\n");
+				exit(0);
+				break;
+		}
+	}
+	
+	if (optind < argc) {
+		inFileName = argv[optind];
+	}
+		
+	FileStorage fs((inFileName ? inFileName : "tracks/rotunda.yaml"), FileStorage::READ);
 	
 	FileNode nodeClip = fs["clip"];
  	string clipPath;
@@ -71,7 +126,8 @@ Configuration::Configuration(int argc, char** argv)
 		frame.copyTo(frames[fi]);
 	}
 	
-	estimateExposure();
+	if (doEstimateExposure)
+		estimateExposure();
 }
 
 // BEGIN MESSY SHIT BLOCK
@@ -140,7 +196,8 @@ void Configuration::estimateExposure()
 		}
 	}
 
-	printf("Estimating exposure values...\n");
+	if (verbosity >= 1)
+		printf("Estimating exposure values...\n");
 	vector<float> exposure(frameCount, 1.0), pointColor(pointCount, 1.0); // brightness (should)= exposure * pointColors.t()
 	float change;
 	do {
@@ -176,20 +233,22 @@ void Configuration::estimateExposure()
 	} while (change/frameCount > 1e-10);
 	
 	//save exposure somewhere (TODO: or multiply each frame directly?)
-	{
-	FILE *exlog = fopen("exposure.tab", "w+");
-	for (int i=0; i<frameCount; i++) {
-		float stddev = 0., weightSum = 0.;
-		for (int j=0; j<pointCount; j++) {
-			float difference = br[i*pointCount + j] - exposure[i] * pointColor[j];
-			stddev += (difference * difference) * we[i*pointCount + j];
-			weightSum += we[i*pointCount + j];
+	if (verbosity >= 3) {
+		FILE *exlog = fopen("exposure.tab", "w+");
+		for (int i=0; i<frameCount; i++) {
+			float stddev = 0., weightSum = 0.;
+			for (int j=0; j<pointCount; j++) {
+				float difference = br[i*pointCount + j] - exposure[i] * pointColor[j];
+				stddev += (difference * difference) * we[i*pointCount + j];
+				weightSum += we[i*pointCount + j];
+			}
+			stddev = sqrt(stddev / weightSum);
+			fprintf(exlog, "%f\t%f\n", exposure[i], stddev);
 		}
-		stddev = sqrt(stddev / weightSum);
-		fprintf(exlog, "%f\t%f\n", exposure[i], stddev);
-		frames[i] /= exposure[i];
+		fclose(exlog);
 	}
-	fclose(exlog);
+	for (int i=0; i<frameCount; i++) {
+		frames[i] /= exposure[i];
 	}
 }
 

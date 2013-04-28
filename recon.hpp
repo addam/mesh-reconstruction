@@ -46,6 +46,7 @@ class Configuration {
 		const float near(int frameNo);
 		const float far(int frameNo);
 		const int frameCount();
+		char verbosity;
 	protected:
 		const Mat reprojectPoints(int frame);
 		void estimateExposure();
@@ -57,6 +58,7 @@ class Configuration {
 		int width, height;
 		std::vector <float> lensDistortion;
 		float centerX, centerY;
+		bool doEstimateExposure;
 };
 
 // render_<whatever>.cpp
