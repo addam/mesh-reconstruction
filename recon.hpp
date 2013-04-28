@@ -4,8 +4,13 @@
 #include <opencv2/core/core.hpp>
 #include <list>
 #include <vector>
+#include <set>
 #include <utility>
 
+#define IMIN(a,b) (((a)<(b)) ? (a) : (b))
+#define IMAX(a,b) (((a)>(b)) ? (a) : (b))
+
+typedef unsigned char uchar;
 typedef cv::Mat Mat;
 typedef std::list<Mat> MatList;
 
@@ -22,6 +27,8 @@ Mat calculateFlow(const Mat prev, const Mat next);
 // util.cpp
 Mat triangulatePixels(const MatList flows, const Mat mainCamera, const MatList cameras, const Mat depth); //mělo by to jako poslední kanál zaznamenávat chybovou míru, aspoň nějak urvat
 Mat dehomogenize(Mat points);
+Mat dehomogenize2D(const Mat points);
+float sampleImage(const Mat image, float radius, const float x, const float y);
 void mixBackground(Mat image, const Mat background, const Mat depth);
 void saveImage(const Mat image, const char *fileName);
 void saveImage(const Mat image, const char *fileName, bool normalize);
@@ -40,10 +47,14 @@ class Configuration {
 		const float far(int frameNo);
 		const int frameCount();
 	protected:
+		const Mat reprojectPoints(int frame);
+		void estimateExposure();
 		std::vector <Mat> frames;
 		std::vector <Mat> cameras;
 		std::vector <float> nearVals, farVals;
 		Mat bundles;
+		std::vector< std::set<int> > bundlesEnabled;
+		int width, height;
 		std::vector <float> lensDistortion;
 		float centerX, centerY;
 };

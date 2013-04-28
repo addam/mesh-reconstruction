@@ -4,7 +4,7 @@ CXXFLAGS = -g
 
 OPENCV_LIBS = -lopencv_core -lopencv_calib3d -lopencv_video -lopencv_highgui -lopencv_imgproc -lopencv_flann
 ALPHA_SHAPES_LIBS = -lCGAL -lboost_thread -lgmp
-RENDER_glx_LIBS = -lGL -lGLEW -lopencv_highgui
+RENDER_glx_LIBS = -lGL -lGLEW -lopencv_highgui -lX11
 
 LIBS = ${ALPHA_SHAPES_LIBS} ${RENDER_${SYSTEM_OPENGL}_LIBS} ${OPENCV_LIBS}
 FILES = recon.cpp flow.cpp alpha_shapes.cpp heuristic.cpp configuration.cpp util.cpp render_${SYSTEM_OPENGL}.o

@@ -13,7 +13,7 @@ const Mat removeProjectionZ(const Mat projection)
 	return result;
 }
 
-Mat dehomogenize(const Mat points)
+Mat dehomogenize(const Mat points) // expects points in rows, returns a new n x 3 matrix
 {
 	Mat result = Mat(points.rows, 3, CV_32FC1);
 	const float *inp;
@@ -24,6 +24,20 @@ Mat dehomogenize(const Mat points)
 		out[0] = inp[0] / inp[3];
 		out[1] = inp[1] / inp[3];
 		out[2] = inp[2] / inp[3];
+	}
+	return result;
+}
+
+Mat dehomogenize2D(const Mat points) // expects points in rows, returns a new n x 2 matrix
+{
+	Mat result = Mat(points.rows, 2, CV_32FC1);
+	const float *inp;
+	float *out;
+	for (int i=0; i<points.rows; i++) {
+		inp = points.ptr<float>(i);
+		out = result.ptr<float>(i);
+		out[0] = inp[0] / inp[2];
+		out[1] = inp[1] / inp[2];
 	}
 	return result;
 }
@@ -90,6 +104,34 @@ void mixBackground(Mat image, const Mat background, const Mat depth)
 	Mat mask;
 	cv::compare(depth, backgroundDepth, mask, cv::CMP_EQ);
 	background.copyTo(image, mask);
+}
+
+float sampleImage(const Mat image, float radius, const float x, const float y)
+//x, y is pointing directly into pixel grid, pixel coordinates are in their corners
+//warning: may return NaN silently (if coordinates are out of image...)
+{
+	if (image.isContinuous()) {
+		char ch = image.channels();
+		float sum = 0., weightSum = 0.;
+		//sample brightness from 3x3 neighborhood TODO: there is a OpenCV function for gaussian sampling...
+		for (int ny = (int)MAX(0, y - radius); ny < MIN(y + radius + 1, image.rows); ny++) {
+			const uchar *row = image.ptr<uchar>(ny);
+			for (int nx = (int)MAX(0, x - radius); nx < MIN(x + radius + 1, image.cols); nx++) {
+				float dx = nx - x, dy = ny - y;
+				if (dx*dx + dy*dy <= radius*radius) {
+					for (char channel = 0; channel < ch; channel++)
+						sum += row[nx*ch + channel];
+					weightSum += ch;
+				}
+			}
+		}
+		if (weightSum > 0)
+			return sum / weightSum;
+		else
+			return -1;
+	} else {
+		return -1;
+	}
 }
 
 void addChannel(MatList dest, const Mat src)
