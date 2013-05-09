@@ -1,6 +1,8 @@
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/calib3d/calib3d.hpp>
+#include <opencv2/imgproc/imgproc.hpp>
 #include <fstream>
+#include <vector>
 
 #include "recon.hpp"
 
@@ -42,61 +44,149 @@ Mat dehomogenize2D(const Mat points) // expects points in rows, returns a new n 
 	return result;
 }
 
+int totalIterations;
+Mat triangulatePixel(float x, float y, const Mat measuredPoints, const Mat variances, const Mat mainCameraInv, const MatList cameras, float depth) {
+	Mat k(cv::Vec4f(x, y, depth, 1)); // estimated point as seen by main camera (only the 3rd coordinate may change during optimization)
+	Mat p(2, cameras.size(), CV_32FC1), delta_p(2, cameras.size(), CV_32FC1); // estimated point, projected to each camera (in columns) and its derivative wrt. z
+	Mat projectionDerivatives(2, cameras.size(), CV_32FC1); // derivative of homogeneous x, y projected to each camera (in columns) wrt. z in main camera's space
+	Mat projectionW(cameras.size(), 4, CV_32FC1); // projection from main camera space to each camera's space (in rows); result of multiplication is just the w coordinate of each point
+	const float *var = variances.ptr<float>(0);
+	{int i=0;	for (MatList::const_iterator camera=cameras.begin(); camera!=cameras.end(); camera++, i++) {
+		Mat(camera->rowRange(0,2) * mainCameraInv.col(2)).copyTo(projectionDerivatives.col(i));
+		camera->row(3).copyTo(projectionW.row(i));
+	}}
+	projectionW = projectionW * mainCameraInv; // now the projection is complete
+	int iterCount = 0;
+	float last_delta_z = depth;
+	while (1) {
+		{int i=0;	for (MatList::const_iterator camera=cameras.begin(); camera!=cameras.end(); camera++, i++) {
+			Mat estimatedPoint = *camera * mainCameraInv * k;
+			estimatedPoint /= estimatedPoint.at<float>(3);
+			estimatedPoint.rowRange(0,2).copyTo(p.col(i));
+		}}
+		Mat pointsW = projectionW * k;
+		pointsW = pointsW.t();
+		cv::divide(projectionDerivatives.row(0), pointsW, delta_p.row(0));
+		cv::divide(projectionDerivatives.row(1), pointsW, delta_p.row(1));
+		double firstDz = 0, secondDz = 0;
+		Mat difference = p - measuredPoints;
+		for (int i=0; i<delta_p.cols; i++) {
+			firstDz += delta_p.col(i).dot(difference.col(i))/var[i];
+			secondDz += delta_p.col(i).dot(delta_p.col(i))/var[i];
+		}
+		/*float denom = cv::sum(delta_p.t() * (p-measuredPoints))[0], // the zero index is there just for opencv pickyness; and it does not work anyway
+		divis = cv::sum(delta_p.t() * delta_p)[0];*/
+		double delta_z = -firstDz/secondDz, eps = 1e-7;
+		if (delta_z < eps && delta_z > -eps)
+			break;
+		// apply sanity constraints to delta_z (so that the point does not get too close to any of the cameras)
+		/*float reasonableStep = 0.5, worstStep = reasonableStep;
+		{int i=0;	for (MatList::const_iterator camera=cameras.begin(); camera!=cameras.end(); camera++, i++) {
+			float thisStep = 1 + delta_z * camera->row(3).t().dot(mainCameraInv.col(2)) / pointsW.at<float>(i);
+			if (thisStep < worstStep)
+				worstStep = thisStep;
+		}}
+		if (worstStep < reasonableStep) {
+			delta_z = (worstStep - 1) / (reasonableStep - 1);
+		}*/
+		// make sure that we get to a better place; if not, make a smaller step
+		while(1) {
+			double change = 0;
+			for (int i=0; i<delta_p.cols; i++)
+				change += (delta_z*delta_p.col(i).dot(delta_p.col(i)) + 2*delta_p.col(i).dot(difference.col(i)))/var[i];
+			change *= delta_z;
+			if (change < 0)
+				break;
+			delta_z *= 0.5; // repeat.
+		}
+		// another heuristic so that it does not jump back and forth
+		if ((delta_z > 0 && last_delta_z < 0 && 2*delta_z > -last_delta_z) ||
+		    (delta_z < 0 && last_delta_z > 0 && -2*delta_z > last_delta_z))
+			delta_z = -last_delta_z/2;
+		if (totalIterations < 50) {
+			double energy = 0;
+			for (int i=0; i<difference.cols; i++)
+				energy += difference.col(i).dot(difference.col(i))/var[i];
+			printf("%g -> %g\n", delta_z, energy);
+		}
+		k.at<float>(3) += delta_z;
+		last_delta_z = delta_z;
+		iterCount ++;
+		totalIterations ++;
+		if (iterCount > 50) {
+			//printf(" %i iterations, delta_z is still %g, skipping\n", iterCount, delta_z);
+			break;
+		}
+	}
+	return mainCameraInv * k;
+}
+
 Mat triangulatePixels(const MatList flows, const Mat mainCamera, const MatList cameras, const Mat depth)
+//FIXME: needs to have access to more details about the camera: to distortion coefficients and principal point
 {
-	MatList guesses;
+	Mat points(0, 4, CV_32FC1);
 	Mat mainCameraInv = mainCamera.inv();
-	Mat mainCameraXYW = removeProjectionZ(mainCamera);
-	int pointCount = 0;
-	FILE *log = fopen("logpoints.obj", "w+");
-	for (MatList::const_iterator flow=flows.begin(), camera=cameras.begin(); flow!=flows.end() && camera!=cameras.end(); flow++, camera++) {
-		if (pointCount == 0) { // FIXME: vybírat jen viditelné pixely obou kamer, to může dávat různé počty pro každou
-			for (int y=0; y < depth.rows; y++) {
-				const float *depthRow = depth.ptr<float>(y); // you'll never get me down to Depth Row! --JP
-				for (int x=0; x < depth.cols; x++) {
-					if (depthRow[x] != backgroundDepth)
-						pointCount ++;
+	totalIterations = 0;
+	for (int row=0; row < depth.rows; row++) {
+		const float *depthRow = depth.ptr<float>(row); // you'll never get me down to Depth Row! --JP
+		for (int col=0; col < depth.cols; col++) {
+			if (depthRow[col] != backgroundDepth) {
+				bool okay = true;
+				float scale = 2.0/depth.cols,
+				      x = col*scale - 1,
+				      y = 1 - row*scale;
+				Mat measuredPoints(2, cameras.size(), CV_32FC1); // points expected by the optical flow, for each camera (in columns)
+				Mat variances(1, cameras.size(), CV_32FC1); // estimated variance of each optical flow around this pixel
+				{int i=0;	for (MatList::const_iterator camera=cameras.begin(), flow=flows.begin(); camera!=cameras.end(); camera++, flow++, i++) {
+					cv::Scalar_<float> fl = flow->at< cv::Scalar_<float> > (row, col);
+					float flx = fl[0], fly = fl[1], variance = fl[2]*fl[2];
+					Mat measuredPoint = *camera * mainCameraInv * Mat(cv::Vec4f(x + flx*scale, y + fly*scale, depthRow[col], 1));
+					measuredPoint /= measuredPoint.at<float>(3);
+					if (measuredPoint.at<float>(2) <= 0) {
+						//printf(" One camera sees this point with depth %g, skipping\n", measuredPoint.at<float>(2));
+						okay = false;
+					}
+					measuredPoint.rowRange(0,2).copyTo(measuredPoints.col(i));
+					variances.at<float>(i) = variance;
+				}}
+				if (okay) {
+					Mat result = triangulatePixel(x, y, measuredPoints, variances, mainCameraInv, cameras, depthRow[col]);
+					if (points.rows == 0)
+						printf(" Triangulated first pixel at viewed depth %g (originally was %g) after %i iterations\n", Mat(mainCamera * result).at<float>(2) / Mat(mainCamera * result).at<float>(3), depthRow[col], totalIterations);
+					result = result.t();
+					points.push_back(result);
 				}
 			}
 		}
-		float *pp = new float[2*pointCount], *np = new float[2*pointCount];
-		Mat prevPoints(2, pointCount, CV_32FC1, (void*)pp), nextPoints(2, pointCount, CV_32FC1, (void*)np);
-		int i=0;
-		for (int y=0; y < depth.rows; y++) {
-			const float *depthRow = depth.ptr<float>(y);
-			const cv::Vec2f *flowRow = flow->ptr<cv::Vec2f>(y);
-			for (int x=0; x < depth.cols; x++) {
-				if (depthRow[x] != backgroundDepth) {
-					// pp: bod viděný z hlavní kamery. Odhad se má měnit ve směru pohledu, takže viděný bod zůstane na svém místě.
-					pp[i] = (2.0*x)/depth.cols - 1.0;
-					pp[pointCount + i] = -(2.0*y)/depth.rows + 1.0;
-					// np: bod posunutý podle optflow, promítnutý vedlejší kamerou
-					// np = camera * mainCamera^(-1) * (x + flow.x, y + flow.y, depth, 1)
-					float flowX = flowRow[x][0], flowY = flowRow[x][1], z = depthRow[x];
-					cv::Vec4f q(2.0*(x + flowX)/depth.cols - 1.0, -2.0*(y + flowY)/depth.rows + 1.0, z, 1);
-					q = cv::Vec4f(Mat((*camera) * mainCameraInv * Mat(q)));
-					np[i] = q[0] / q[3];
-					np[pointCount + i] = q[1] / q[3];
-					i ++;
-				}
-			}
-		}
-		Mat guess;
-		cv::triangulatePoints(mainCameraXYW, removeProjectionZ(*camera), prevPoints, nextPoints, guess);
-		delete pp, np;
-		//nechat body homogenní, ale zajistit, že w ~ 1/chyba výpočtu
-		guesses.push_back(guess);
 	}
-	Mat avg(pointCount, 4, CV_32FC1, 0.0); //FIXME: až se budou počty pixelů lišit, tak bacha, který s kterým průměrovat
-	for (MatList::const_iterator guess=guesses.begin(); guess!=guesses.end(); guess++) {
-		for (int i=0; i<pointCount; i++) {
-			avg.row(i) += guess->col(i).t() / guess->at<float>(3, i);
-		}
+	printf(" Triangulation finished after %i iterations in total\n", totalIterations);
+	return points;
+}
+
+Mat compare(const Mat prev, const Mat next)
+{
+	std::vector<Mat> diffPyramid;
+	int size = (prev.rows < prev.cols) ? prev.rows : prev.cols;
+	Mat a, b;
+	prev.convertTo(a, CV_32FC3);
+	next.convertTo(b, CV_32FC3);
+	while (1) {
+		Mat diff;
+		cv::absdiff(a, b, diff);
+		cv::cvtColor(diff, diff, CV_RGB2GRAY);
+		diffPyramid.push_back(diff);
+		if (size <= 2)
+			break;
+		cv::pyrDown(a, a);
+		cv::pyrDown(b, b);
+		size /= 2;
 	}
-	//FIXME: tohle bude potřeba nahradit složitějším výpočtem, aby výsledná chyba (1/vektor.w) dávala smysl
-	avg /= guesses.size();
-	//mělo by to navracet přesnost výpočtu, aspoň nějak urvat
-	return avg;
+	for (int i=diffPyramid.size()-2; i>=0; i--) {
+		Mat upscaledDiff;
+		cv::pyrUp(diffPyramid[i+1], upscaledDiff, diffPyramid[i].size());
+		diffPyramid[i] += upscaledDiff;
+	}
+	return diffPyramid[0];
 }
 
 void mixBackground(Mat image, const Mat background, const Mat depth)
@@ -104,6 +194,20 @@ void mixBackground(Mat image, const Mat background, const Mat depth)
 	Mat mask;
 	cv::compare(depth, backgroundDepth, mask, cv::CMP_EQ);
 	background.copyTo(image, mask);
+}
+
+Mat flowRemap(const Mat flow, const Mat image)
+{
+	Mat flowMap(flow.rows, flow.cols, CV_32FC2);
+	int fromTo[] = {0,0, 1,1};
+	cv::mixChannels(&flow, 1, &flowMap, 1, fromTo, 2);
+	for (int x=0; x < flow.cols; x++)
+		flowMap.col(x) += cv::Scalar(x, 0);
+	for (int y=0; y < flow.rows; y++)
+		flowMap.row(y) += cv::Scalar(0, y);
+	Mat remapped;
+	cv::remap(image, remapped, flowMap, Mat(), CV_INTER_CUBIC);
+	return remapped;
 }
 
 float sampleImage(const Mat image, float radius, const float x, const float y)
