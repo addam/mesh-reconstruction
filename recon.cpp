@@ -54,13 +54,8 @@ int main(int argc, char ** argv) {
 				Mat projectedImage = render->projected(config.camera(fa), config.frame(fb), config.camera(fb));
 				mixBackground(projectedImage, originalImage, depth);
 				Mat flow = calculateFlow(originalImage, projectedImage);
-				mixBackground(flow, Mat::zeros(flow.rows, flow.cols, CV_32FC2), depth);
-				Mat flowMap(flow.rows, flow.cols, CV_32FC2);
-				flow.copyTo(flowMap);
-				for (int x=0; x < flow.cols; x++) flowMap.col(x) += cv::Scalar(x, 0);
-				for (int y=0; y < flow.rows; y++) flowMap.row(y) += cv::Scalar(0, y);
-				Mat remapped;
-				cv::remap(projectedImage, remapped, flowMap, Mat(), CV_INTER_CUBIC);
+				//mixBackground(flow, Mat::zeros(flow.rows, flow.cols, CV_32FC4), depth);
+				flow += cv::Scalar(0,0,0,1);
 				if (config.verbosity >= 3) {
 					char filename[300];
 					//nahrubo ulož výsledek
@@ -68,8 +63,11 @@ int main(int argc, char ** argv) {
 					saveImage(projectedImage, filename);
 					snprintf(filename, 300, "flow-frame%ifrom%i.png", fa, fb);
 					saveImage(flow, filename, true);
+					Mat remapped = flowRemap(flow, projectedImage);
 					snprintf(filename, 300, "frame%ifrom%i-remapped.png", fa, fb);
 					saveImage(remapped, filename);
+					snprintf(filename, 300, "frame%ifrom%i-remap-error.png", fa, fb);
+					saveImage(compare(originalImage, remapped), filename, true);
 				}
 				
 				flows.push_back(flow);

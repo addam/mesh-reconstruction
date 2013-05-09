@@ -26,10 +26,12 @@ Mat calculateFlow(const Mat prev, const Mat next);
 
 // util.cpp
 Mat triangulatePixels(const MatList flows, const Mat mainCamera, const MatList cameras, const Mat depth); //mělo by to jako poslední kanál zaznamenávat chybovou míru, aspoň nějak urvat
+Mat compare(const Mat prev, const Mat next);
 Mat dehomogenize(Mat points);
 Mat dehomogenize2D(const Mat points);
 float sampleImage(const Mat image, float radius, const float x, const float y);
 void mixBackground(Mat image, const Mat background, const Mat depth);
+Mat flowRemap(const Mat flow, const Mat image);
 void saveImage(const Mat image, const char *fileName);
 void saveImage(const Mat image, const char *fileName, bool normalize);
 void saveMesh(const Mat points, const Mat indices, const char *fileName);
