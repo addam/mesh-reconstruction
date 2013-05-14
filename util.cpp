@@ -56,9 +56,9 @@ Mat triangulatePixel(float x, float y, const Mat measuredPoints, const Mat varia
 		camera->row(3).copyTo(projectionW.row(i));
 	}}
 	projectionW = projectionW * mainCameraInv; // now the projection is complete
-	int iterCount = 0;
 	float last_delta_z = depth;
-	while (1) {
+	
+	for (int iterCount=0; iterCount < 5; iterCount++) {
 		{int i=0;	for (MatList::const_iterator camera=cameras.begin(); camera!=cameras.end(); camera++, i++) {
 			Mat estimatedPoint = *camera * mainCameraInv * k;
 			estimatedPoint /= estimatedPoint.at<float>(3);
@@ -90,7 +90,7 @@ Mat triangulatePixel(float x, float y, const Mat measuredPoints, const Mat varia
 			delta_z = (worstStep - 1) / (reasonableStep - 1);
 		}*/
 		// make sure that we get to a better place; if not, make a smaller step
-		while(1) {
+		/*while(1) {
 			double change = 0;
 			for (int i=0; i<delta_p.cols; i++)
 				change += (delta_z*delta_p.col(i).dot(delta_p.col(i)) + 2*delta_p.col(i).dot(difference.col(i)))/var[i];
@@ -107,16 +107,11 @@ Mat triangulatePixel(float x, float y, const Mat measuredPoints, const Mat varia
 			double energy = 0;
 			for (int i=0; i<difference.cols; i++)
 				energy += difference.col(i).dot(difference.col(i))/var[i];
-			printf("%g -> %g\n", delta_z, energy);
-		}
-		k.at<float>(3) += delta_z;
+			//printf("%g -> %g\n", delta_z, energy);
+		}*/
+		k.at<float>(2) += delta_z;
 		last_delta_z = delta_z;
-		iterCount ++;
-		totalIterations ++;
-		if (iterCount > 50) {
-			//printf(" %i iterations, delta_z is still %g, skipping\n", iterCount, delta_z);
-			break;
-		}
+		//DEBUG totalIterations ++;
 	}
 	return mainCameraInv * k;
 }
@@ -126,40 +121,40 @@ Mat triangulatePixels(const MatList flows, const Mat mainCamera, const MatList c
 {
 	Mat points(0, 4, CV_32FC1);
 	Mat mainCameraInv = mainCamera.inv();
-	totalIterations = 0;
+	//DEBUG totalIterations = 0;
 	for (int row=0; row < depth.rows; row++) {
 		const float *depthRow = depth.ptr<float>(row); // you'll never get me down to Depth Row! --JP
 		for (int col=0; col < depth.cols; col++) {
 			if (depthRow[col] != backgroundDepth) {
 				bool okay = true;
-				float scale = 2.0/depth.cols,
-				      x = col*scale - 1,
-				      y = 1 - row*scale;
+				float centerX = depth.cols/2.0, centerY = depth.rows/2.0; // FIXME: as noted above, this need not be true
+				float scaleX = 2.0/depth.cols, scaleY = 2.0/depth.rows,
+				      x = (centerX-col)*scaleX,
+				      y = (row-centerY)*scaleY;
 				Mat measuredPoints(2, cameras.size(), CV_32FC1); // points expected by the optical flow, for each camera (in columns)
 				Mat variances(1, cameras.size(), CV_32FC1); // estimated variance of each optical flow around this pixel
 				{int i=0;	for (MatList::const_iterator camera=cameras.begin(), flow=flows.begin(); camera!=cameras.end(); camera++, flow++, i++) {
 					cv::Scalar_<float> fl = flow->at< cv::Scalar_<float> > (row, col);
 					float flx = fl[0], fly = fl[1], variance = fl[2]*fl[2];
-					Mat measuredPoint = *camera * mainCameraInv * Mat(cv::Vec4f(x + flx*scale, y + fly*scale, depthRow[col], 1));
+					Mat measuredPoint = *camera * mainCameraInv * Mat(cv::Vec4f(x + flx*scaleX, y + fly*scaleY, depthRow[col], 1));
 					measuredPoint /= measuredPoint.at<float>(3);
-					if (measuredPoint.at<float>(2) <= 0) {
+					if (measuredPoint.at<float>(2) < -1) {
 						//printf(" One camera sees this point with depth %g, skipping\n", measuredPoint.at<float>(2));
 						okay = false;
+						break;
 					}
 					measuredPoint.rowRange(0,2).copyTo(measuredPoints.col(i));
 					variances.at<float>(i) = variance;
 				}}
 				if (okay) {
 					Mat result = triangulatePixel(x, y, measuredPoints, variances, mainCameraInv, cameras, depthRow[col]);
-					if (points.rows == 0)
-						printf(" Triangulated first pixel at viewed depth %g (originally was %g) after %i iterations\n", Mat(mainCamera * result).at<float>(2) / Mat(mainCamera * result).at<float>(3), depthRow[col], totalIterations);
 					result = result.t();
 					points.push_back(result);
 				}
 			}
 		}
 	}
-	printf(" Triangulation finished after %i iterations in total\n", totalIterations);
+	//DEBUG printf(" Triangulated %i points using %i iterations in total, %g per point\n", points.rows, totalIterations, (float)totalIterations/points.rows);
 	return points;
 }
 
