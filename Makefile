@@ -33,11 +33,11 @@ test_reader: test_reader.cpp alpha_shapes.o
 
 test: recon
 	rm frame*.png || true
-	./recon tracks/zatisi.yaml
+	./recon tracks/koberec-.yaml -v
 
 test_alpha_shapes: alpha_shapes.cpp
 	${CXX} ${CXXFLAGS} alpha_shapes.cpp -frounding-math -O2 ${ALPHA_SHAPES_LIBS} -lopencv_core -DTEST_BUILD -o test_alpha_shapes
-	./test_alpha_shapes
+	/usr/bin/time -f '%e seconds, %M kBytes' ./test_alpha_shapes
 
 test_glx: render_glx.cpp shaders.hpp
 	${CXX} ${CXXFLAGS} render_glx.cpp ${RENDER_glx_LIBS} -lopencv_core -lopencv_highgui -DTEST_BUILD -o glx

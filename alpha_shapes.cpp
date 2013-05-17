@@ -28,23 +28,32 @@ typedef Alpha_shape_3::Cell Cell;
 typedef Gt::Point_3 Point;
 typedef Alpha_shape_3::Alpha_iterator Alpha_iterator;
 
-Mat alphaShapeIndices(Mat points)
-{
-	return alphaShapeIndices(points, NULL);
-}
-
 Mat alphaShapeIndices(Mat points, float *alpha)
+// alpha is only a side output, its original value is not used
 {
 	if (points.rows == 0 || points.cols == 0)
 		return Mat(0, 3, CV_32SC1);
 	std::vector<Point> lp;
 	std::map<Point, int> vertex_indices;
-	for (int i = 0; i < points.rows; i++) {
-		const float* cvPoint = points.ptr<float>(i);
-		Point p(cvPoint[0]/cvPoint[3], cvPoint[1]/cvPoint[3], cvPoint[2]/cvPoint[3]);
-		vertex_indices[p] = i;
-		lp.push_back(p);
+	lp.reserve(points.rows);
+	if (points.cols == 3) {
+		for (int i = 0; i < points.rows; i++) {
+			const float* cvPoint = points.ptr<float>(i);
+			Point p(cvPoint[0], cvPoint[1], cvPoint[2]);
+			vertex_indices[p] = i;
+			lp.push_back(p);
+		}
+	}	else if (points.cols == 4) {
+		for (int i = 0; i < points.rows; i++) {
+			const float* cvPoint = points.ptr<float>(i);
+			Point p(cvPoint[0]/cvPoint[3], cvPoint[1]/cvPoint[3], cvPoint[2]/cvPoint[3]);
+			vertex_indices[p] = i;
+			lp.push_back(p);
+		}
+	} else {
+		assert(false);
 	}
+
   Alpha_shape_3 as(lp.begin(),lp.end());
 
   Alpha_iterator opt = as.find_optimal_alpha(1);
@@ -55,7 +64,7 @@ Mat alphaShapeIndices(Mat points, float *alpha)
 
   std::vector<Facet> facets;
   as.get_alpha_shape_facets(back_inserter(facets), Alpha_shape_3::REGULAR);
-  as.get_alpha_shape_facets(back_inserter(facets), Alpha_shape_3::SINGULAR);
+  //as.get_alpha_shape_facets(back_inserter(facets), Alpha_shape_3::SINGULAR);
   Mat result(facets.size(), 3, CV_32SC1);
   for (int i=0; i < facets.size(); i++) {
 		Cell cell = *(facets[i].first);
@@ -69,24 +78,33 @@ Mat alphaShapeIndices(Mat points, float *alpha)
 	return result;
 }
 
+Mat alphaShapeIndices(Mat points)
+{
+	return alphaShapeIndices(points, NULL);
+}
+
 #ifdef TEST_BUILD
 int main()
 {
 	//read input
-	std::ifstream is("shit/bunny_1000");
-	std::ofstream os("shit/bunny_alpha");
+	//std::ifstream is("shit/bunny_1000");
+	std::ifstream is("shit/stanford_dragon_big");
+	std::ofstream os("shit/dragon_alpha.obj");
 	int n;
 	is >> n;
-	std::cout << "Reading " << n << " points " << std::endl;
-	Mat points(0, 3, CV_32FC1);
+	std::cout << "Reading " << n << " points..." << std::endl;
+	Mat points(0, 1, CV_32FC3);
 	cv::Point3f point;
-	for(int i=1; i <= n; i ++) {
+	for(int i=0; i < n; i ++) {
 		is >> point.x >> point.y >> point.z;
 		points.push_back(point);
-		const float* row = points.ptr<float>(i-1);
+		const float* row = points.ptr<float>(i);
 		os << "v " << row[0] << ' ' << row[1] << ' ' << row[2] << std::endl;
 	}
 	is.close();
+	points = points.reshape(1);
+	std::cout << points.rows << " points, " << points.cols << " dimensions" << std::endl;
+	std::cout << "Calculating alpha shape..." << std::endl;
 	Mat alphaShape = alphaShapeIndices(points);
 	for (int i=0; i < alphaShape.rows; i++){
 		const int32_t* row = alphaShape.ptr<int32_t>(i);
