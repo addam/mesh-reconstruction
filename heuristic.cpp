@@ -97,7 +97,7 @@ void Heuristic::filterPoints(Mat& points)
 		if (density[i] > densityLimit)
 			densityLimit = density[i];
 	}
-	densityLimit = 1.0;
+	densityLimit = 0.5;
 	printf(" Density converged in %i iterations. Limit set to: %f\n", densityIterationNo, densityLimit);
 	//projdi kandidáty od nejhustších, poznamenávej si je jako přidané a dle libovůle snižuj hustotu okolním
 	std::vector<int> order(pointCount, -1);
@@ -141,23 +141,123 @@ void Heuristic::filterPoints(Mat points)
 	printf("%i filtered points\n", points.rows);
 }
 */
+/*
+const Mat faceCamera(const Mat points, const Mat indices, int faceIdx)
+{
+	float focalLength = 1;
+	const int32_t *vertIdx = indices.ptr<int32_t>(faceIdx);
+	Mat a(points.row(vertIdx[0])), b(points.row(vertIdx[1])), c(points.row(vertIdx[2]));
+	Mat normal((b-a).cross(c-b)),
+	    center((a+b+c)/3);
+	float *n = normal.ptr<float>(0),
+	      *ce = center.ptr<float>(0);
+	float x = n[0], y = n[1], z = n[2];
+	float b = sqrt(x*x + y*y),
+	      l = sqrt(x*x + y*y + z*z);
+	Mat R;
+	if (b > 0) {
+		R = Mat(Matx44f(
+			x*z/(b*l), y*z/(b*l), -b/l, ce[0],
+			-y/b,      x/b,       0,    ce[1],
+			x,         y,         z,    ce[2],
+			0,         0,         0,    1));
+	} else { // no need for rotation
+		float s = (n.z > 0) ? 1 : -1;
+		R = Mat(Matx44f(
+			1, 0, 0, c[0],
+			0, s, 0, c[1],
+			0, 0, s, c[2],
+			0, 0, 0, 1));
+	}
+	//Mat K(Matx44f(		)
+	return R;
+}
 
-void Heuristic::chooseCameras()
+void Heuristic::chooseCameras(const Mat points, const Mat indices)
+{
+	chosenCameras.clear();
+	std::vector<float> areaSum(0., indices.rows+1);
+	for (int i=0; i<indices.rows; i++) {
+		const int32_t* vertIdx = indices.ptr<int32_t>(i);
+		Mat a(points.row(vertIdx[1]) - points.row(vertIdx[0])),
+		    b(points.row(vertIdx[2]) - points.row(vertIdx[0]));
+		areaSum[i+1] = areaSum[i] + cv::norm(a.cross(b))/2;
+	}
+	float totalArea = areaSum.back(), average = totalArea / indices.rows;
+	
+	std::vector<bool> used(false, indices.rows);
+	float bullets = 2;
+	cv::RNG random = cv::theRNG();
+	Render *render = spawnRender(*this);
+	render->loadMesh(points, indices);
+	while (1) {
+		float choice = random() * (totalArea + bullets);
+		if (choice >= totalArea) {
+			// congratulations: you won the Russian roulette
+			if (chosenCameras.size() > 0)
+				break;
+			else
+				continue;
+		} else {
+			int chosenIdx = 1;
+			{ // bisect for the appropriate index
+				int bottom = 1, top = areaSum.size();
+				while (bottom + 1 < top) {
+					chosenIdx = (bottom + top) / 2;
+					if (areaSum[chosenIdx] <= choice)
+						bottom = chosenIdx;
+					else
+						top = chosenIdx;
+				}
+			}
+			//FIXME: the normal of the face must be oriented correctly!
+			Mat viewer = faceCamera(points, indices, chosenIdx);
+			Mat depth = render->depth(viewer);
+			std::vector<bool> filteredCameras = filterCameras(points, indices, chosenIdx);
+			int mainIdx = chooseMain(viewer, filteredCameras, chosenCameras);
+			if (mainIdx != -1) {
+				filteredCameras[mainIdx] = false;
+				int sideIdx = chooseSide(viewer, filteredCameras, mainIdx, chosenCameras);
+				if (sideIdx != -1) {
+					int positionMain = myFind(chosenCameras, mainIdx);
+					if (positionMain < 0) {
+						chosenCameras.push_back(numberedVector(mainIdx, std::vector<int>(1, sideIdx)));
+					}	else {
+						int positionSide = myFind(chosenCameras[positionMain], sideIdx);
+						if (positionSide < 0)
+							chosenCameras[positionMain].second.push_back(sideIdx);
+					}
+				}
+			}
+		}
+	}
+}
+*/
+void Heuristic::chooseCameras(const Mat points, const Mat indices)
 {
 	chosenCameras.clear();
 	for (int i=0; i < config->frameCount(); i += 33) {
 		std::vector<int> linked;
 		if (i - 25 >= 0)
 			linked.push_back(i-25);
+		if (i - 20 >= 0)
+			linked.push_back(i-20);
 		if (i - 15 >= 0)
 			linked.push_back(i-15);
+		if (i - 10 >= 0)
+			linked.push_back(i-10);
+		if (i + 10 < config->frameCount())
+			linked.push_back(i+10);
 		if (i + 15 < config->frameCount())
 			linked.push_back(i+15);
+		if (i + 20 < config->frameCount())
+			linked.push_back(i+20);
 		if (i + 25 < config->frameCount())
 			linked.push_back(i+25);
 		chosenCameras.push_back(numberedVector(i, linked));
 	}
 }
+
 int Heuristic::beginMain()
 { // initialize and return frame number for first main camera
 	if (chosenCameras.size() == 0)

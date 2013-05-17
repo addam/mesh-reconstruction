@@ -8,13 +8,6 @@
 
 const float backgroundDepth = 1.0;
 
-const Mat removeProjectionZ(const Mat projection)
-{
-	Mat result = Mat(projection.rowRange(0,2));
-	result.push_back(projection.row(3));
-	return result;
-}
-
 Mat dehomogenize(const Mat points) // expects points in rows, returns a new n x 3 matrix
 {
 	Mat result = Mat(points.rows, 3, CV_32FC1);
@@ -42,6 +35,18 @@ Mat dehomogenize2D(const Mat points) // expects points in rows, returns a new n 
 		out[1] = inp[1] / inp[2];
 	}
 	return result;
+}
+
+bool goodSample(const Mat image, const float x, const float y)
+// throw away points whose neighboring pixels cannot be directly interpolated
+{
+	if (x < 0 || x > image.cols-1 || y < 0 || y > image.rows-1)
+		return false;
+	int ix = x, iy = y;
+	return (image.at<float>(iy,ix) != backgroundDepth &&
+	        image.at<float>(iy,ix+1) != backgroundDepth &&
+	        image.at<float>(iy+1,ix) != backgroundDepth &&
+	        image.at<float>(iy+1,ix+1) != backgroundDepth);
 }
 
 int totalIterations;
@@ -136,7 +141,9 @@ Mat triangulatePixels(const MatList flows, const Mat mainCamera, const MatList c
 				{int i=0;	for (MatList::const_iterator camera=cameras.begin(), flow=flows.begin(); camera!=cameras.end(); camera++, flow++, i++) {
 					cv::Scalar_<float> fl = flow->at< cv::Scalar_<float> > (row, col);
 					float flx = fl[0], fly = fl[1], variance = fl[2]*fl[2];
-					Mat measuredPoint = *camera * mainCameraInv * Mat(cv::Vec4f(x + flx*scaleX, y + fly*scaleY, depthRow[col], 1));
+					// try to sample from the projected position; if that is not meaningful, use original pixel's depth
+					float z = goodSample(depth, col+flx, row+fly) ? sampleImage(depth, col + flx, row + fly) : depthRow[col];
+					Mat measuredPoint = *camera * mainCameraInv * Mat(cv::Vec4f(x + flx*scaleX, y + fly*scaleY, z, 1));
 					measuredPoint /= measuredPoint.at<float>(3);
 					if (measuredPoint.at<float>(2) < -1) {
 						//printf(" One camera sees this point with depth %g, skipping\n", measuredPoint.at<float>(2));
@@ -207,12 +214,12 @@ Mat flowRemap(const Mat flow, const Mat image)
 
 float sampleImage(const Mat image, float radius, const float x, const float y)
 //x, y is pointing directly into pixel grid, pixel coordinates are in their corners
-//warning: may return NaN silently (if coordinates are out of image...)
+//warning: return -1 if coordinates are out of image
 {
-	if (image.isContinuous()) {
+	if (image.isContinuous() && image.depth() == CV_8U) {
 		char ch = image.channels();
 		float sum = 0., weightSum = 0.;
-		//sample brightness from 3x3 neighborhood TODO: there is a OpenCV function for gaussian sampling...
+		//sample brightness from 3x3 neighborhood TODO: there is an OpenCV function for gaussian sampling...
 		for (int ny = (int)MAX(0, y - radius); ny < MIN(y + radius + 1, image.rows); ny++) {
 			const uchar *row = image.ptr<uchar>(ny);
 			for (int nx = (int)MAX(0, x - radius); nx < MIN(x + radius + 1, image.cols); nx++) {
@@ -231,6 +238,46 @@ float sampleImage(const Mat image, float radius, const float x, const float y)
 	} else {
 		return -1;
 	}
+}
+
+float sampleImage(const Mat image, const float x, const float y)
+//x, y is pointing directly into pixel grid, pixel coordinates are in their corners
+{
+	if (x < 0 || x > image.cols-1 || y < 0 || y > image.rows-1) {
+		return NAN;
+	}
+	// prepare weights
+	float lw = fmod(x, 1), rw = 1-lw,
+	      tw = fmod(y, 1), bw = 1-tw;
+	if (rw == 0) {
+		if (bw == 0) {
+			return image.at<float>(y,x);
+		} else {
+			return image.at<float>(y,x)*tw + image.at<float>(y+1,x)*bw;
+		}
+	} else {
+		if (bw == 0) {
+			return image.at<float>(y,x)*lw + image.at<float>(y,x+1)*rw;
+		} else {
+			return (image.at<float>(y,x)*lw + image.at<float>(y,x+1)*rw)*tw + (image.at<float>(y+1,x)*lw + image.at<float>(y+1,x+1)*rw)*bw;
+		}
+	}
+}
+
+Mat imageGradient(const Mat image)
+{
+	if (image.channels() > 1) {
+		Mat image_gray;
+		cv::cvtColor(image, image_gray, CV_RGB2GRAY);
+		return imageGradient(image_gray);
+	}
+	Mat grad[2];
+	Sobel(image, grad[0], CV_32F, 1, 0);
+	Sobel(image, grad[1], CV_32F, 0, 1);
+	Mat result(image.rows, image.cols, CV_32FC2);
+	int from_to[] = {0,0, 1,1};
+	mixChannels(grad, 1, &result, 1, from_to, 2);
+	return result;
 }
 
 void addChannel(MatList dest, const Mat src)

@@ -30,6 +30,7 @@ Mat compare(const Mat prev, const Mat next);
 Mat dehomogenize(Mat points);
 Mat dehomogenize2D(const Mat points);
 float sampleImage(const Mat image, float radius, const float x, const float y);
+float sampleImage(const Mat image, const float x, const float y); // linear sampling
 void mixBackground(Mat image, const Mat background, const Mat depth);
 Mat flowRemap(const Mat flow, const Mat image);
 void saveImage(const Mat image, const char *fileName);
@@ -70,6 +71,7 @@ class Render {
 		virtual void loadMesh(const Mat points, const Mat indices) = 0;
 		virtual Mat projected(const Mat camera, const Mat frame, const Mat projector) = 0;
 		virtual Mat depth(const Mat camera) = 0;
+		//TODO: virtual Mat depth(const Mat camera, int width, int height) = 0;
 };
 Render *spawnRender(Heuristic hint);
 
@@ -78,7 +80,7 @@ typedef std::pair <int, std::vector <int> > numberedVector;
 class Heuristic {
 	public:
 		Heuristic(Configuration *iconfig);
-		void chooseCameras();
+		void chooseCameras(const Mat points, const Mat indices);
 		bool notHappy(const Mat points);
 		int beginMain(); // initialize and return frame number for first main camera
 		int nextMain(); // return frame number for next main camera
