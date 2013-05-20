@@ -69,10 +69,11 @@ Mat alphaShapeIndices(Mat points, float *alpha)
   for (int i=0; i < facets.size(); i++) {
 		Cell cell = *(facets[i].first);
 		int vertex_excluded = facets[i].second;
-		// TODO: is it possible to have the normal right away correct?
 		int32_t* outfacet = result.ptr<int32_t>(i);
+		// a little magic so that face normals are oriented outside
+		char sign = (vertex_excluded % 2 == (0 == cell.get_alpha() || cell.get_alpha() > *opt)) ? 1 : 2; // 2 = -1 (mod 3)
 		for (char j = vertex_excluded + 1; j < vertex_excluded + 4; j++){
-			outfacet[j%3] = vertex_indices[cell.vertex(j%4)->point()];
+			outfacet[(sign*j)%3] = vertex_indices[cell.vertex(j%4)->point()];
 		}
 	}
 	return result;
