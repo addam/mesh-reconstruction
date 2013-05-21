@@ -6,7 +6,7 @@
 
 #include "recon.hpp"
 
-const float backgroundDepth = 1.0;
+//#define USE_COVAR_MATRICES
 
 Mat dehomogenize(const Mat points) // expects points in rows, returns a new n x 3 matrix
 {
@@ -50,12 +50,20 @@ bool goodSample(const Mat image, const float x, const float y)
 }
 
 int totalIterations;
-Mat triangulatePixel(float x, float y, const Mat measuredPoints, const Mat variances, const Mat mainCameraInv, const MatList cameras, float depth) {
+Mat triangulatePixel(float x, float y, const Mat measuredPoints, const Mat invVariances, const Mat mainCameraInv, const MatList cameras, float depth) {
 	Mat k(cv::Vec4f(x, y, depth, 1)); // estimated point as seen by main camera (only the 3rd coordinate may change during optimization)
 	Mat p(2, cameras.size(), CV_32FC1), delta_p(2, cameras.size(), CV_32FC1); // estimated point, projected to each camera (in columns) and its derivative wrt. z
 	Mat projectionDerivatives(2, cameras.size(), CV_32FC1); // derivative of homogeneous x, y projected to each camera (in columns) wrt. z in main camera's space
 	Mat projectionW(cameras.size(), 4, CV_32FC1); // projection from main camera space to each camera's space (in rows); result of multiplication is just the w coordinate of each point
-	const float *var = variances.ptr<float>(0);
+	#ifdef USE_COVAR_MATRICES
+	std::vector<Mat> icovars;
+	icovars.reserve(invVariances.rows);
+	for (int i=0; i<invVariances.rows; i++) {
+		icovars.push_back(invVariances.row(i).reshape(1,2));
+	}
+	#else
+	const float *ivar = invVariances.ptr<float>(0);
+	#endif
 	{int i=0;	for (MatList::const_iterator camera=cameras.begin(); camera!=cameras.end(); camera++, i++) {
 		Mat(camera->rowRange(0,2) * mainCameraInv.col(2)).copyTo(projectionDerivatives.col(i));
 		camera->row(3).copyTo(projectionW.row(i));
@@ -76,11 +84,15 @@ Mat triangulatePixel(float x, float y, const Mat measuredPoints, const Mat varia
 		double firstDz = 0, secondDz = 0;
 		Mat difference = p - measuredPoints;
 		for (int i=0; i<delta_p.cols; i++) {
-			firstDz += delta_p.col(i).dot(difference.col(i))/var[i];
-			secondDz += delta_p.col(i).dot(delta_p.col(i))/var[i];
+			#ifdef USE_COVAR_MATRICES
+			Mat transformed = icovars[i] * delta_p.col(i);
+			firstDz += difference.col(i).dot(transformed);
+			secondDz += delta_p.col(i).dot(transformed);
+			#else
+			firstDz += delta_p.col(i).dot(difference.col(i)) * ivar[i];
+			secondDz += delta_p.col(i).dot(delta_p.col(i)) * ivar[i];
+			#endif
 		}
-		/*float denom = cv::sum(delta_p.t() * (p-measuredPoints))[0], // the zero index is there just for opencv pickyness; and it does not work anyway
-		divis = cv::sum(delta_p.t() * delta_p)[0];*/
 		double delta_z = -firstDz/secondDz, eps = 1e-7;
 		if (delta_z < eps && delta_z > -eps)
 			break;
@@ -94,24 +106,14 @@ Mat triangulatePixel(float x, float y, const Mat measuredPoints, const Mat varia
 		if (worstStep < reasonableStep) {
 			delta_z = (worstStep - 1) / (reasonableStep - 1);
 		}*/
-		// make sure that we get to a better place; if not, make a smaller step
-		/*while(1) {
-			double change = 0;
-			for (int i=0; i<delta_p.cols; i++)
-				change += (delta_z*delta_p.col(i).dot(delta_p.col(i)) + 2*delta_p.col(i).dot(difference.col(i)))/var[i];
-			change *= delta_z;
-			if (change < 0)
-				break;
-			delta_z *= 0.5; // repeat.
-		}
 		// another heuristic so that it does not jump back and forth
 		if ((delta_z > 0 && last_delta_z < 0 && 2*delta_z > -last_delta_z) ||
 		    (delta_z < 0 && last_delta_z > 0 && -2*delta_z > last_delta_z))
 			delta_z = -last_delta_z/2;
-		if (totalIterations < 50) {
+		/*if (totalIterations < 50) {
 			double energy = 0;
 			for (int i=0; i<difference.cols; i++)
-				energy += difference.col(i).dot(difference.col(i))/var[i];
+				energy += difference.col(i).dot(difference.col(i)) * ivar[i];
 			//printf("%g -> %g\n", delta_z, energy);
 		}*/
 		k.at<float>(2) += delta_z;
@@ -126,6 +128,7 @@ Mat triangulatePixels(const MatList flows, const Mat mainCamera, const MatList c
 {
 	Mat points(0, 4, CV_32FC1);
 	Mat mainCameraInv = mainCamera.inv();
+	Mat gradient = imageGradient(depth);
 	//DEBUG totalIterations = 0;
 	for (int row=0; row < depth.rows; row++) {
 		const float *depthRow = depth.ptr<float>(row); // you'll never get me down to Depth Row! --JP
@@ -137,13 +140,30 @@ Mat triangulatePixels(const MatList flows, const Mat mainCamera, const MatList c
 				      x = (centerX-col)*scaleX,
 				      y = (row-centerY)*scaleY;
 				Mat measuredPoints(2, cameras.size(), CV_32FC1); // points expected by the optical flow, for each camera (in columns)
-				Mat variances(1, cameras.size(), CV_32FC1); // estimated variance of each optical flow around this pixel
+				#ifdef USE_COVAR_MATRICES
+				Mat invVariances(cameras.size(), 1, CV_32FC4); // inverted covariance matrices of each optical flow around this pixel, each a single row
+				#else
+				Mat invVariances(cameras.size(), 1, CV_32FC1); // estimated variance of each optical flow around this pixel
+				#endif
 				{int i=0;	for (MatList::const_iterator camera=cameras.begin(), flow=flows.begin(); camera!=cameras.end(); camera++, flow++, i++) {
 					cv::Scalar_<float> fl = flow->at< cv::Scalar_<float> > (row, col);
 					float flx = fl[0], fly = fl[1], variance = fl[2]*fl[2];
 					// try to sample from the projected position; if that is not meaningful, use original pixel's depth
-					float z = goodSample(depth, col+flx, row+fly) ? sampleImage(depth, col + flx, row + fly) : depthRow[col];
+					float z = goodSample(depth, col+flx, row+fly) ? sampleImage<float>(depth, col + flx, row + fly) : depthRow[col];
 					Mat measuredPoint = *camera * mainCameraInv * Mat(cv::Vec4f(x + flx*scaleX, y + fly*scaleY, z, 1));
+					#ifdef USE_COVAR_MATRICES
+					Mat D = Mat::eye(3, 2, CV_32FC1);
+					if (goodSample(depth, col+flx, row+fly))
+						D.reshape(2).at<cv::Point>(2) = sampleImage<cv::Point>(gradient, col+flx, row+fly);
+					else
+						D.reshape(2).at<cv::Point>(2) = sampleImage<cv::Point>(gradient, col, row);
+					Mat A = camera->rowRange(0,2).colRange(0,3) * mainCameraInv.rowRange(0,3).colRange(0,3) * D;
+					A /= measuredPoint.at<float>(3);
+					Mat icovarMatrix = (A * A.t()).inv() / variance;
+					icovarMatrix.reshape(4, 1).copyTo(invVariances.row(i));
+					#else
+					invVariances.at<float>(i) = 1/variance;
+					#endif
 					measuredPoint /= measuredPoint.at<float>(3);
 					if (measuredPoint.at<float>(2) < -1) {
 						//printf(" One camera sees this point with depth %g, skipping\n", measuredPoint.at<float>(2));
@@ -151,10 +171,9 @@ Mat triangulatePixels(const MatList flows, const Mat mainCamera, const MatList c
 						break;
 					}
 					measuredPoint.rowRange(0,2).copyTo(measuredPoints.col(i));
-					variances.at<float>(i) = variance;
 				}}
 				if (okay) {
-					Mat result = triangulatePixel(x, y, measuredPoints, variances, mainCameraInv, cameras, depthRow[col]);
+					Mat result = triangulatePixel(x, y, measuredPoints, invVariances, mainCameraInv, cameras, depthRow[col]);
 					result = result.t();
 					points.push_back(result);
 				}
@@ -240,26 +259,28 @@ float sampleImage(const Mat image, float radius, const float x, const float y)
 	}
 }
 
-float sampleImage(const Mat image, const float x, const float y)
+template <class T>
+T sampleImage(const Mat image, const float x, const float y)
 //x, y is pointing directly into pixel grid, pixel coordinates are in their corners
 {
 	if (x < 0 || x > image.cols-1 || y < 0 || y > image.rows-1) {
-		return NAN;
+		throw -1;
+		//return T(NAN);
 	}
 	// prepare weights
 	float lw = fmod(x, 1), rw = 1-lw,
 	      tw = fmod(y, 1), bw = 1-tw;
 	if (rw == 0) {
 		if (bw == 0) {
-			return image.at<float>(y,x);
+			return image.at<T>(y,x);
 		} else {
-			return image.at<float>(y,x)*tw + image.at<float>(y+1,x)*bw;
+			return image.at<T>(y,x)*tw + image.at<T>(y+1,x)*bw;
 		}
 	} else {
 		if (bw == 0) {
-			return image.at<float>(y,x)*lw + image.at<float>(y,x+1)*rw;
+			return image.at<T>(y,x)*lw + image.at<T>(y,x+1)*rw;
 		} else {
-			return (image.at<float>(y,x)*lw + image.at<float>(y,x+1)*rw)*tw + (image.at<float>(y+1,x)*lw + image.at<float>(y+1,x+1)*rw)*bw;
+			return (image.at<T>(y,x)*lw + image.at<T>(y,x+1)*rw)*tw + (image.at<T>(y+1,x)*lw + image.at<T>(y+1,x+1)*rw)*bw;
 		}
 	}
 }
@@ -276,7 +297,7 @@ Mat imageGradient(const Mat image)
 	Sobel(image, grad[1], CV_32F, 0, 1);
 	Mat result(image.rows, image.cols, CV_32FC2);
 	int from_to[] = {0,0, 1,1};
-	mixChannels(grad, 1, &result, 1, from_to, 2);
+	mixChannels(grad, 2, &result, 1, from_to, 2);
 	return result;
 }
 

@@ -17,6 +17,9 @@ typedef std::list<Mat> MatList;
 class Configuration;
 class Heuristic;
 
+const float backgroundDepth = 1.0;
+
+
 // alpha_shapes.cpp
 Mat alphaShapeIndices(const Mat points);
 Mat alphaShapeIndices(const Mat points, float *alpha); //'alpha' is currently just written to, not used
@@ -30,12 +33,13 @@ Mat compare(const Mat prev, const Mat next);
 Mat dehomogenize(Mat points);
 Mat dehomogenize2D(const Mat points);
 float sampleImage(const Mat image, float radius, const float x, const float y);
-float sampleImage(const Mat image, const float x, const float y); // linear sampling
+template <class T> T sampleImage(const Mat image, const float x, const float y); // linear sampling
 void mixBackground(Mat image, const Mat background, const Mat depth);
 Mat flowRemap(const Mat flow, const Mat image);
 void saveImage(const Mat image, const char *fileName);
 void saveImage(const Mat image, const char *fileName, bool normalize);
 void saveMesh(const Mat points, const Mat indices, const char *fileName);
+Mat imageGradient(const Mat image);
 void addChannel(MatList dest, const Mat src);
 
 // configuration.cpp
@@ -46,6 +50,7 @@ class Configuration {
 		Mat reconstructedPoints();
 		const Mat frame(int frameNo);
 		const Mat camera(int frameNo);
+		const std::vector<Mat> allCameras();
 		const float near(int frameNo);
 		const float far(int frameNo);
 		const int frameCount();
@@ -80,7 +85,7 @@ typedef std::pair <int, std::vector <int> > numberedVector;
 class Heuristic {
 	public:
 		Heuristic(Configuration *iconfig);
-		void chooseCameras(const Mat points, const Mat indices);
+		void chooseCameras(const Mat points, const Mat indices, const std::vector<Mat> cameras);
 		bool notHappy(const Mat points);
 		int beginMain(); // initialize and return frame number for first main camera
 		int nextMain(); // return frame number for next main camera

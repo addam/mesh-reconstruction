@@ -27,7 +27,7 @@ int main(int argc, char ** argv) {
 			saveMesh(points, indices, "recon_orig.obj");
 		render->loadMesh(points, indices);
 
-		hint.chooseCameras(points, indices);
+		hint.chooseCameras(points, indices, config.allCameras());
 		if (config.verbosity >= 1)
 			printf("Tracking the whole clip...\n");
 		for (int fa = hint.beginMain(); fa != Heuristic::sentinel; fa = hint.nextMain()) {

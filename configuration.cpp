@@ -62,7 +62,11 @@ Configuration::Configuration(int argc, char** argv)
 		inFileName = argv[optind];
 	}
 		
-	FileStorage fs((inFileName ? inFileName : "tracks/rotunda.yaml"), FileStorage::READ);
+	FileStorage fs((inFileName ? inFileName : "tracks/koberec-.yaml"), FileStorage::READ);
+	if (!fs.isOpened()) {
+		printf("Cannot read file %s, exiting.\n", inFileName);
+		exit(1);
+	}
 	
 	FileNode nodeClip = fs["clip"];
  	string clipPath;
@@ -161,6 +165,7 @@ const Mat screenToCamera(const Mat points, const vector<float> lensDistortion)
 const Mat Configuration::reprojectPoints(const int frameNo) {
 	Mat projectedPoints = (camera(frameNo) * bundles.t()).t();
 	Mat cartesianPoints = dehomogenize(projectedPoints);
+	//FIXME NOTE: já je ale chci distort, ne?
 	Mat undistortedPoints = screenToCamera(cartesianPoints, lensDistortion);
 	return undistortedPoints;
 }
@@ -270,6 +275,11 @@ const Mat Configuration::frame(int frameNo)
 const Mat Configuration::camera(int frameNo)
 {
 	return cameras[frameNo];
+}
+
+const std::vector<Mat> Configuration::allCameras()
+{
+	return vector<Mat> (cameras);
 }
 
 const float Configuration::near(int frameNo)
