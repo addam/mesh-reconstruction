@@ -48,3 +48,9 @@ sandbox: sandbox.cpp
 
 clean:
 	rm recon *.o shaders.hpp
+
+clean_images:
+	rm depth-frame*.png
+	rm flow-frame*from*.png
+	rm frame*.png
+	rm project-frame*from*.png
