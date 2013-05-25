@@ -50,8 +50,8 @@ def write_tracks(context, filepath, include_hidden):
 	f.write("camera:\n")
 	for camera in tr.reconstruction.cameras:
 		cam_inv = camera.matrix.inverted()
-		distances = [-(track.bundle * cam_inv).z for track in tr.tracks if include_hidden or not track.hide]
-		near, far = min(d for d in distances if d > 0), max(distances)
+		distances = [(track.bundle.to_4d() * camera.matrix.transposed()).zw for track in tr.tracks if include_hidden or not track.hide]
+		near, far = min(-z/w for z,w in distances if z/w < 0), max(-z/w for z,w in distances)
 		persp = PerspectiveMatrix(fovx=fov, aspect=clip.size[0]/clip.size[1], near=near, far=far)
 		f.write(" - frame: {frame}\n"
 						"   near: {near}\n"
