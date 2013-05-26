@@ -184,6 +184,80 @@ Mat triangulatePixels(const MatList flows, const Mat mainCamera, const MatList c
 	return points;
 }
 
+Mat bruteTriangulation(const Mat mainFrame, const Mat mainCamera, std::vector<Mat> frames, const MatList cameras, const Mat depth)
+//FIXME: needs to have access to more details about the camera: to distortion coefficients and principal point
+{
+	Mat points(0, 4, CV_32FC1);
+	Mat mainCameraInv = mainCamera.inv();
+	int ccount = cameras.size(),
+	    width = depth.cols, height = depth.rows;
+	float *coords = new float[4*ccount]; // (px, py, ex, ey) for each side camera
+	for (int row=0; row < height; row++) {
+		const float *depthRow = depth.ptr<float>(row);
+		for (int col=0; col < width; col++) {
+			if (depthRow[col] == backgroundDepth)
+				continue;
+			float centerX = width/2.0, centerY = height/2.0; // FIXME: as noted above, this need not be true
+			float mainX = (centerX-col) * 2.0/width,
+			      mainY = (row-centerY) * 2.0/height;
+			Mat projected = mainCameraInv * Mat(cv::Vec4f(mainX, mainY, depthRow[col], 1));
+			Mat epipole = mainCameraInv * Mat(cv::Vec4f(0, 0, 1, 0));
+			{int i=0;	for (MatList::const_iterator camera=cameras.begin(); camera!=cameras.end(); camera++, i++) {
+				float px, py, ex, ey;
+				int offs = 4*i;
+				Mat p = *camera * projected;
+				coords[offs+0] = p.at<float>(0) / p.at<float>(3);
+				coords[offs+1] = p.at<float>(1) / p.at<float>(3);
+				Mat e = *camera * epipole;
+				coords[offs+2] = e.at<float>(0) / e.at<float>(3);
+				coords[offs+3] = e.at<float>(1) / e.at<float>(3);
+			}}
+			uchar mainPix[3];
+			{
+				const uchar *mf = mainFrame.ptr<uchar>(row);
+				for (char c=0; c<3; c++) {
+					mainPix[c] = mf[col*3+c];
+				}
+			}
+			float min_energy=FLT_MAX, argmin_z=0;
+			int sampleCount = 1000, bottom = sampleCount * (-1.0-depthRow[col]), top = sampleCount * (1.0-depthRow[col]);
+			for (int zi=bottom; zi<top; zi++) {
+				float z = zi/(float)sampleCount;
+				float energy = 0;
+				int divisor = 0;
+				for (int i=0; i<ccount; i++) {
+					float sideX = centerX - width * 0.5 * (coords[4*i+0] + z*coords[4*i+2])/(1+z),
+					      sideY = centerY + height * 0.5 * (coords[4*i+1] + z*coords[4*i+3])/(1+z);
+					if (!(sideX >= 0 && sideX <= width-1 && sideY >= 0 && sideY <= height-1)) {
+						continue;
+					}
+					float lw = fmod(sideX, 1), rw = 1-lw,
+					      tw = fmod(sideY, 1), bw = 1-tw;
+					int x = (int)sideX, y = (int)sideY;
+					for (char c=0; c<3; c++) {
+						uchar *top = frames[i].ptr<uchar>(y), *bottom = frames[i].ptr<uchar>(y+1);
+						float diff = (top[3*x+c]*lw + top[3*x+3+c]*rw)*tw + (bottom[3*x+c]*lw + bottom[3*x+3+c]*rw)*bw - mainPix[c];
+						energy += (diff>0) ? diff : -diff;
+					}
+					divisor += 3;
+					if (divisor > 0 && energy/divisor > min_energy)
+						break;
+				}
+				if (divisor > 0 && energy/divisor < min_energy) {
+					min_energy = energy/divisor;
+					argmin_z = z;
+				}
+			}
+			if (min_energy < FLT_MAX) {
+				Mat point = (mainCameraInv * Mat(cv::Vec4f(mainX, mainY, depthRow[col] + argmin_z, 1))).t();
+				points.push_back(point);
+			}
+		}
+	}
+	delete coords;
+	return points;
+}
+
 Mat compare(const Mat prev, const Mat next)
 {
 	std::vector<Mat> diffPyramid;

@@ -29,6 +29,7 @@ Mat calculateFlow(const Mat prev, const Mat next);
 
 // util.cpp
 Mat triangulatePixels(const MatList flows, const Mat mainCamera, const MatList cameras, const Mat depth); //mělo by to jako poslední kanál zaznamenávat chybovou míru, aspoň nějak urvat
+Mat bruteTriangulation(const Mat mainFrame, const Mat mainCamera, std::vector<Mat> frames, const MatList cameras, const Mat depth);
 Mat compare(const Mat prev, const Mat next);
 Mat dehomogenize(Mat points);
 Mat dehomogenize2D(const Mat points);

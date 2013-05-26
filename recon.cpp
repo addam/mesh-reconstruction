@@ -14,11 +14,10 @@ int main(int argc, char ** argv) {
 	if (config.verbosity >= 2)
 		printf(" Loaded %i points\n", points.rows);
 	
+	Mat debugIndices = alphaShapeIndices(points);
 	while (hint.notHappy(points)) {
 		//sestav z nich alphashape
 		float alpha;
-		if (config.verbosity >= 1)
-			printf("Calculating alpha shape...\n");
 		Mat indices = alphaShapeIndices(points, &alpha);
 		if (config.verbosity >= 2)
 			printf(" %i faces.\n", indices.rows);
@@ -27,7 +26,24 @@ int main(int argc, char ** argv) {
 			saveMesh(points, indices, "recon_orig.obj");
 		render->loadMesh(points, indices);
 
+		if (config.verbosity >= 1)
+			printf("Choosing cameras...\n");
 		hint.chooseCameras(points, indices, config.allCameras());
+		if (config.verbosity >= 1) {
+			int fa = hint.beginMain();
+			if (fa == Heuristic::sentinel) {
+				printf(" Heuristic has chosen no cameras, which is an error. However, we have got nothing more to do.\n");
+				exit(1);
+			}
+			for (; fa != Heuristic::sentinel; fa = hint.nextMain()) {
+				printf("  main camera %i, side cameras ", fa);
+				for (int fb = hint.beginSide(fa); fb != Heuristic::sentinel; fb = hint.nextSide(fa)) {
+					printf("%i, ", fb);
+				}
+				printf("\n");
+			}
+		}
+
 		if (config.verbosity >= 1)
 			printf("Tracking the whole clip...\n");
 		for (int fa = hint.beginMain(); fa != Heuristic::sentinel; fa = hint.nextMain()) {
@@ -49,6 +65,21 @@ int main(int argc, char ** argv) {
 				snprintf(filename, 300, "depth-frame%i.png", fa);
 				saveImage(depth, filename, true);
 			}
+			std::vector<Mat> frames;
+			MatList cameras;
+			//for (int fb = hint.beginSide(fa); fb != Heuristic::sentinel; fb = hint.nextSide(fa)) {
+			printf("Nevermind. Choosing side cameras: ");
+			for (int fb = 0+fa%7; fb < config.frameCount(); fb += 10) {
+				if (fb == fa)
+					continue;
+				printf("%i, ", fb);
+				frames.push_back(config.frame(fb));
+				cameras.push_back(config.camera(fb));
+			}
+			printf("\n");
+			Mat newPoints = bruteTriangulation(config.frame(fa), config.camera(fa), frames, cameras, depth);
+			points.push_back(newPoints);
+			/*
 			MatList flows, cameras;
 			for (int fb = hint.beginSide(fa); fb != Heuristic::sentinel; fb = hint.nextSide(fa)) {
 				Mat projectedImage = render->projected(config.camera(fa), config.frame(fb), config.camera(fb));
@@ -75,21 +106,22 @@ int main(int argc, char ** argv) {
 			}
 			//trianguluj všechny pixely
 			points.push_back(triangulatePixels(flows, config.camera(fa), cameras, depth));
+			*/
 			if (config.verbosity >= 2)
 				printf(" After processing main frame %i: %i points\n", fa, points.rows);
 		}
-		hint.filterPoints(points);
+		/*hint.filterPoints(points);
 		if (config.verbosity >= 2)
-			printf(" %i filtered points\n", points.rows);
+			printf(" %i filtered points\n", points.rows);*/
 	}
 	delete render;
 	//vysypej triangulované body jako obj
-	if (config.verbosity >= 1)
+	/*if (config.verbosity >= 1)
 		printf("Calculating final alpha shape...\n");
 	Mat indices = alphaShapeIndices(points);
 	if (config.verbosity >= 2)
-		printf(" %i faces\n", indices.rows);
-	saveMesh(points, indices, "triangulated.obj");
+		printf(" %i faces\n", indices.rows);*/
+	saveMesh(points, debugIndices, "triangulated.obj");
 	if (config.verbosity >= 2)
 		printf(" Saved, done.\n");
 	return 0;

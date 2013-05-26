@@ -1,6 +1,6 @@
 SYSTEM_OPENGL = glx
 CXX = g++
-CXXFLAGS = -g
+CXXFLAGS = -g -O3 -funroll-loops
 
 OPENCV_LIBS = -lopencv_core -lopencv_calib3d -lopencv_video -lopencv_highgui -lopencv_imgproc -lopencv_flann
 ALPHA_SHAPES_LIBS = -lCGAL -lboost_thread -lgmp
