@@ -107,7 +107,10 @@ GLuint LoadShaders(){
 		std::cerr << FragmentShaderErrorMessage;
 	}
 	#endif
-
+	
+	//glEnable(GL_BLEND);
+	//glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	
 	// Link the program
 	GLuint ProgramID = glCreateProgram();
 	glAttachShader(ProgramID, VertexShaderID);
@@ -179,7 +182,8 @@ RenderGLX::RenderGLX(int width, int height, char *displayName)
 RenderGLX::~RenderGLX()
 {
 	//deinitScene
-	glDeleteBuffers(1, &vertexbuffer);
+	if (vertexbuffer != -1)
+		glDeleteBuffers(1, &vertexbuffer);
 	glDeleteProgram(programID);
 	glDeleteVertexArrays(1, &vertexArrayID);
 
@@ -205,6 +209,8 @@ void RenderGLX::loadMesh(const Mat points, const Mat indices) {
 	}
 	
 	glBindVertexArray(vertexArrayID);
+	if (vertexbuffer != -1)
+		glDeleteBuffers(1, &vertexbuffer);
 	glGenBuffers(1, &vertexbuffer);
 	glBindBuffer(GL_ARRAY_BUFFER, vertexbuffer);
 
@@ -242,7 +248,7 @@ Mat RenderGLX::projected(const Mat camera, const Mat frame, const Mat projector)
 	glReadBuffer(GL_COLOR_ATTACHMENT0);
 	glReadPixels(0, 0, imgw, imgh, GL_RGB, GL_UNSIGNED_BYTE, result.data);
 	glDeleteTextures(1, &texture);
-	cv::flip(result, result, 1);
+	cv::flip(result, result, 0);
 	return result;
 }	
 
@@ -266,7 +272,7 @@ Mat RenderGLX::depth(const Mat camera) {
 	Mat result(imgh, imgw, CV_32FC1);
 	glReadBuffer(GL_DEPTH_ATTACHMENT);
 	glReadPixels(0, 0, imgw, imgh, GL_DEPTH_COMPONENT, GL_FLOAT, result.data);
-	cv::flip(result, result, 1);
+	cv::flip(result, result, 0);
 	result = 2*result - 1;
 	return result;
 }
@@ -300,7 +306,7 @@ int main(int argc, char ** argv)
 				point = MVP * point;
 				float pointW = point.at<float>(3, 0), pointX = point.at<float>(0, 0)/pointW, pointY = point.at<float>(1, 0)/pointW, pointZ = point.at<float>(2, 0)/pointW;
 				cv::Scalar color = (pointZ <= 1 && pointZ >= -1) ? cv::Scalar(128*(1-pointZ), 128*(pointZ+1), 0) : cv::Scalar(0, 0, 255);
-				cv::circle(frame, cv::Point(frame.cols*(0.5 + pointX*0.5), frame.rows * (0.5 - pointY*0.5)), 3, color, -1, 8);
+				cv::circle(frame, cv::Point(frame.cols*(0.5 - pointX*0.5), frame.rows * (0.5 + pointY*0.5)), 3, color, -1, 8);
 			}
 	cv::imwrite("projected.png", frame);
 	Mat depth = r.depth(MVP);

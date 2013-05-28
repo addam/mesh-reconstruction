@@ -69,7 +69,7 @@ int main(int argc, char ** argv) {
 			MatList cameras;
 			//for (int fb = hint.beginSide(fa); fb != Heuristic::sentinel; fb = hint.nextSide(fa)) {
 			printf("Nevermind. Choosing side cameras: ");
-			for (int fb = 0+fa%7; fb < config.frameCount(); fb += 10) {
+			for (int fb = (fa<5)?0:fa-5; fb < config.frameCount() && fb < fa+5; fb += 1) {
 				if (fb == fa)
 					continue;
 				printf("%i, ", fb);
@@ -109,6 +109,7 @@ int main(int argc, char ** argv) {
 			*/
 			if (config.verbosity >= 2)
 				printf(" After processing main frame %i: %i points\n", fa, points.rows);
+			break;
 		}
 		/*hint.filterPoints(points);
 		if (config.verbosity >= 2)

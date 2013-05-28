@@ -184,6 +184,17 @@ Mat triangulatePixels(const MatList flows, const Mat mainCamera, const MatList c
 	return points;
 }
 
+float maxUpdate(float &dst, float val1, float val2) {
+	if (val1 < 0)
+		val1 = -val1;
+	if (val2 < 0)
+		val2 = -val2;
+	if (val1 > val2 && val1 > dst)
+		dst = val1;
+	else if (val2 > dst)
+		dst = val2;
+}
+
 Mat bruteTriangulation(const Mat mainFrame, const Mat mainCamera, std::vector<Mat> frames, const MatList cameras, const Mat depth)
 //FIXME: needs to have access to more details about the camera: to distortion coefficients and principal point
 {
@@ -191,26 +202,59 @@ Mat bruteTriangulation(const Mat mainFrame, const Mat mainCamera, std::vector<Ma
 	Mat mainCameraInv = mainCamera.inv();
 	int ccount = cameras.size(),
 	    width = depth.cols, height = depth.rows;
-	float *coords = new float[4*ccount]; // (px, py, ex, ey) for each side camera
+	float *coords = new float[8*ccount]; // (px, py, ex, ey) for each side camera
+
+	/*
+	Mat K, R, T;
+	Mat projTmp = mainCamera.rowRange(0,2);
+	projTmp.push_back(mainCamera.row(3));
+	cv::decomposeProjectionMatrix(projTmp, K, R, T);
+	Mat epipole = R.row(2).t();
+	epipole.push_back(0.f);
+	*/
+	/*
+	Mat painted;
+	mainFrame.copyTo(painted);
+	Mat ep = mainCamera * epipole;
+	float centerX = width/2.0, centerY = height/2.0; // FIXME: as noted above, this need not be true
+	int posx = centerX + width * 0.5 * (ep.at<float>(0) / ep.at<float>(3)),
+	    posy = centerY - height * 0.5 * (ep.at<float>(0) / ep.at<float>(3));
+	for (char c=0; c<3; c++) {
+		uchar *top = painted.ptr<uchar>(posy), *bottom = painted.ptr<uchar>(posy+1);
+		top[3*posx+c] = 255;
+		top[3*posx+3+c] = bottom[3*posx+c] = 128;
+		bottom[3*posx+3+c] = 0;
+	}
+	cv::namedWindow("win");
+	cv::imshow("win", painted);
+	cv::waitKey(50000);
+	*/
 	for (int row=0; row < height; row++) {
 		const float *depthRow = depth.ptr<float>(row);
 		for (int col=0; col < width; col++) {
 			if (depthRow[col] == backgroundDepth)
 				continue;
 			float centerX = width/2.0, centerY = height/2.0; // FIXME: as noted above, this need not be true
-			float mainX = (centerX-col) * 2.0/width,
-			      mainY = (row-centerY) * 2.0/height;
-			Mat projected = mainCameraInv * Mat(cv::Vec4f(mainX, mainY, depthRow[col], 1));
-			Mat epipole = mainCameraInv * Mat(cv::Vec4f(0, 0, 1, 0));
+			float mainX = (col-centerX) * 2.0/width,
+			      mainY = (centerY-row) * 2.0/height;
+			Mat epipole = mainCameraInv * Mat(cv::Vec4f(mainX, mainY, 1, 1));
+			epipole.at<float>(3) = 0;
+			Mat backProjected = mainCameraInv * Mat(cv::Vec4f(mainX, mainY, depthRow[col], 1));
+			float pw = backProjected.at<float>(3);
+			epipole *= pw;
+			float maxDist = 0;
 			{int i=0;	for (MatList::const_iterator camera=cameras.begin(); camera!=cameras.end(); camera++, i++) {
 				float px, py, ex, ey;
-				int offs = 4*i;
-				Mat p = *camera * projected;
-				coords[offs+0] = p.at<float>(0) / p.at<float>(3);
-				coords[offs+1] = p.at<float>(1) / p.at<float>(3);
-				Mat e = *camera * epipole;
-				coords[offs+2] = e.at<float>(0) / e.at<float>(3);
-				coords[offs+3] = e.at<float>(1) / e.at<float>(3);
+				int offs = 8*i;
+				Mat p = *camera * backProjected;
+				float downscale = 1.0/p.at<float>(3);
+				coords[offs+0] = p.at<float>(0) * downscale;
+				coords[offs+1] = p.at<float>(1) * downscale;
+				Mat e = *camera * epipole * downscale;
+				coords[offs+2] = e.at<float>(0);
+				coords[offs+3] = e.at<float>(1);
+				coords[offs+4] = e.at<float>(3);
+				maxUpdate(maxDist, coords[offs]-coords[offs+2], coords[offs+1]-coords[offs+3]);
 			}}
 			uchar mainPix[3];
 			{
@@ -220,36 +264,39 @@ Mat bruteTriangulation(const Mat mainFrame, const Mat mainCamera, std::vector<Ma
 				}
 			}
 			float min_energy=FLT_MAX, argmin_z=0;
-			int sampleCount = 1000, bottom = sampleCount * (-1.0-depthRow[col]), top = sampleCount * (1.0-depthRow[col]);
-			for (int zi=bottom; zi<top; zi++) {
-				float z = zi/(float)sampleCount;
+			maxDist += 2000;
+			for (int zi=0; zi<1.5*maxDist; zi++) {
+				float z = (zi==0)? 0 : 0.1*(-1+zi/maxDist);
 				float energy = 0;
 				int divisor = 0;
 				for (int i=0; i<ccount; i++) {
-					float sideX = centerX - width * 0.5 * (coords[4*i+0] + z*coords[4*i+2])/(1+z),
-					      sideY = centerY + height * 0.5 * (coords[4*i+1] + z*coords[4*i+3])/(1+z);
-					if (!(sideX >= 0 && sideX <= width-1 && sideY >= 0 && sideY <= height-1)) {
+					int offs = 8*i;
+					float sideCol = centerX + width * 0.5 * (coords[offs+0] + z*coords[offs+2])/(1+z*coords[offs+4]),
+					      sideRow = centerY - height * 0.5 * (coords[offs+1] + z*coords[offs+3])/(1+z*coords[offs+4]);
+					if (!(sideCol >= 0 && sideCol <= width-1 && sideRow >= 0 && sideRow <= height-1)) {
+						energy += 300;
 						continue;
 					}
-					float lw = fmod(sideX, 1), rw = 1-lw,
-					      tw = fmod(sideY, 1), bw = 1-tw;
-					int x = (int)sideX, y = (int)sideY;
+					float lw = fmod(sideCol, 1), rw = 1-lw,
+					      tw = fmod(sideRow, 1), bw = 1-tw;
+					int x = (int)sideCol, y = (int)sideRow;
 					for (char c=0; c<3; c++) {
 						uchar *top = frames[i].ptr<uchar>(y), *bottom = frames[i].ptr<uchar>(y+1);
 						float diff = (top[3*x+c]*lw + top[3*x+3+c]*rw)*tw + (bottom[3*x+c]*lw + bottom[3*x+3+c]*rw)*bw - mainPix[c];
-						energy += (diff>0) ? diff : -diff;
+						if (diff < 0)
+							diff = -diff;
+						energy += (diff>100) ? 100 : diff;
 					}
-					divisor += 3;
-					if (divisor > 0 && energy/divisor > min_energy)
+					if (energy > min_energy)
 						break;
 				}
-				if (divisor > 0 && energy/divisor < min_energy) {
-					min_energy = energy/divisor;
+				if (energy < min_energy) {
+					min_energy = energy;
 					argmin_z = z;
 				}
 			}
-			if (min_energy < FLT_MAX) {
-				Mat point = (mainCameraInv * Mat(cv::Vec4f(mainX, mainY, depthRow[col] + argmin_z, 1))).t();
+			if (min_energy < FLT_MAX && argmin_z != 0 && argmin_z > -0.099 && argmin_z < 0.0499) {
+				Mat point = (backProjected + argmin_z * epipole).t();
 				points.push_back(point);
 			}
 		}

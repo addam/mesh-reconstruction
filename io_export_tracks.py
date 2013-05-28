@@ -20,10 +20,10 @@ bl_info = {
 
 def PerspectiveMatrix(fovx, aspect, near=0.1, far=1000.0):
 	return mathutils.Matrix([
-		[-2/fovx, 0, 0, 0],
-		[0, -2*aspect/fovx, 0, 0],
-		[0, 0, -(far+near)/(far-near), -(2*far*near)/(far-near)],
-		[0, 0, -1, 0]])
+		[2/fovx, 0, 0, 0],
+		[0, 2*aspect/fovx, 0, 0],
+		[0, 0, (far+near)/(far-near), (2*far*near)/(near-far)],
+		[0, 0, 1, 0]])
 
 def write_tracks(context, filepath, include_hidden):
 	f = open(filepath, 'w', encoding='utf-8')
@@ -48,11 +48,15 @@ def write_tracks(context, filepath, include_hidden):
 					center_x=tr.camera.principal[0],
 					center_y=tr.camera.principal[1]))
 	f.write("camera:\n")
+	flip = mathutils.Matrix(((1,0,0,0), (0,1,0,0), (0,0,-1,0), (0,0,0,1)));
 	for camera in tr.reconstruction.cameras:
-		cam_inv = camera.matrix.inverted()
-		distances = [(track.bundle.to_4d() * camera.matrix.transposed()).zw for track in tr.tracks if include_hidden or not track.hide]
-		near, far = min(-z/w for z,w in distances if z/w < 0), max(-z/w for z,w in distances)
+		cammat = camera.matrix * flip
+		cam_inv = cammat.inverted()
+		distances = [(cam_inv * track.bundle.to_4d()).zw for track in tr.tracks if include_hidden or not track.hide]
+		near, far = 0.8*min(z/w for z,w in distances if z/w > 0), 2*max(z/w for z,w in distances)
 		persp = PerspectiveMatrix(fovx=fov, aspect=clip.size[0]/clip.size[1], near=near, far=far)
+		new_distances = [((persp * cam_inv) * track.bundle.to_4d()).zw for track in tr.tracks if include_hidden or not track.hide]
+		print ("All points fit between {} and {} depth.".format(min(z/w for z,w in new_distances), max(z/w for z,w in new_distances)))
 		f.write(" - frame: {frame}\n"
 						"   near: {near}\n"
 						"   far: {far}\n"
@@ -68,7 +72,7 @@ def write_tracks(context, filepath, include_hidden):
 	          "    data: [ {position}]\n".format(
 	          frame=camera.frame, near=near, far=far,
 	          projection=", ".join(str(val) for val in chain(*(persp * cam_inv))),
-	          position = ", ".join(str(val) for val in camera.matrix.translation.to_4d())
+	          position = ", ".join(str(val) for val in cammat.translation.to_4d())
 	         ))
 			#camera.average_error, frame, matrix
 	f.write("tracks:\n")
