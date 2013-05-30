@@ -137,8 +137,8 @@ Mat triangulatePixels(const MatList flows, const Mat mainCamera, const MatList c
 				bool okay = true;
 				float centerX = depth.cols/2.0, centerY = depth.rows/2.0; // FIXME: as noted above, this need not be true
 				float scaleX = 2.0/depth.cols, scaleY = 2.0/depth.rows,
-				      x = (centerX-col)*scaleX,
-				      y = (row-centerY)*scaleY;
+				      x = (col-centerX)*scaleX,
+				      y = (centerY-row)*scaleY;
 				Mat measuredPoints(2, cameras.size(), CV_32FC1); // points expected by the optical flow, for each camera (in columns)
 				#ifdef USE_COVAR_MATRICES
 				Mat invVariances(cameras.size(), 1, CV_32FC4); // inverted covariance matrices of each optical flow around this pixel, each a single row

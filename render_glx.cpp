@@ -179,7 +179,8 @@ RenderGLX::RenderGLX(int width, int height, char *displayName)
 RenderGLX::~RenderGLX()
 {
 	//deinitScene
-	glDeleteBuffers(1, &vertexbuffer);
+	if (vertexbuffer != -1)
+		glDeleteBuffers(1, &vertexbuffer);
 	glDeleteProgram(programID);
 	glDeleteVertexArrays(1, &vertexArrayID);
 
@@ -205,6 +206,8 @@ void RenderGLX::loadMesh(const Mat points, const Mat indices) {
 	}
 	
 	glBindVertexArray(vertexArrayID);
+	if (vertexbuffer != -1)
+		glDeleteBuffers(1, &vertexbuffer);
 	glGenBuffers(1, &vertexbuffer);
 	glBindBuffer(GL_ARRAY_BUFFER, vertexbuffer);
 
@@ -221,9 +224,9 @@ Mat RenderGLX::projected(const Mat camera, const Mat frame, const Mat projector)
 	glUniformMatrix4fv(sideMatrixID, 1, GL_TRUE, (float*)projector.data);
 
 	glActiveTexture(GL_TEXTURE0);
-	Mat flippedTex;
-	cv::flip(frame, flippedTex, -1);
-	GLuint texture = createTexture(flippedTex);
+	/*Mat flippedTex;
+	cv::flip(frame, flippedTex, 0);*/
+	GLuint texture = createTexture(frame);
 	glBindTexture(GL_TEXTURE_2D, texture);
 	// Set our "myTextureSampler" sampler to user Texture Unit 0
 	glUniform1i(textureSamplerID, 0);
@@ -242,7 +245,7 @@ Mat RenderGLX::projected(const Mat camera, const Mat frame, const Mat projector)
 	glReadBuffer(GL_COLOR_ATTACHMENT0);
 	glReadPixels(0, 0, imgw, imgh, GL_RGB, GL_UNSIGNED_BYTE, result.data);
 	glDeleteTextures(1, &texture);
-	cv::flip(result, result, 1);
+	cv::flip(result, result, 0);
 	return result;
 }	
 
@@ -266,7 +269,7 @@ Mat RenderGLX::depth(const Mat camera) {
 	Mat result(imgh, imgw, CV_32FC1);
 	glReadBuffer(GL_DEPTH_ATTACHMENT);
 	glReadPixels(0, 0, imgw, imgh, GL_DEPTH_COMPONENT, GL_FLOAT, result.data);
-	cv::flip(result, result, 1);
+	cv::flip(result, result, 0);
 	result = 2*result - 1;
 	return result;
 }

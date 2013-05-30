@@ -75,6 +75,8 @@ Configuration::Configuration(int argc, char** argv)
 	nodeClip["path"] >> clipPath;
 	nodeClip["center-x"] >> centerX;
 	nodeClip["center-y"] >> centerY;
+	centerX += 0.5; // conversion from grid to grid, seems to help
+	centerY -= 0.5;
 	nodeClip["distortion"] >> lensDistortion;
 	
 	VideoCapture clip(clipPath);
@@ -134,42 +136,23 @@ Configuration::Configuration(int argc, char** argv)
 		estimateExposure();
 }
 
-// BEGIN MESSY SHIT BLOCK
-inline const float invertPoly(const float k1, const float k2, const float q)
-{
-	float x = q, dx;
-	for (int i=0; i<1000; i++) {
-		dx = (q - x*(1 + x*(k1 + x*k2)));
-		if (dx < 1.e-6 && dx > -1.e-6)
-			break;
-		dx /= (1 + x*(2*k1 + 3*x*k2));
-		x += dx;
-	}
-	return x;
-}
-
-const Mat screenToCamera(const Mat points, const vector<float> lensDistortion)
+void cameraToScreen(Mat points, const vector<float> lensDistortion, float aspect)
 // expects cartesian 3D points in rows
 {
-	const Mat mneg(Matx22f(-1, 0, 0, -1));
-	Mat rp = mneg * points.colRange(0, 2).t();
-	/*Mat rad = Mat::ones(1, 2, CV_32FC1) * rp.mul(rp);
-	float *radius = rad.ptr<float>(0);
-	for (int i=0; i < rad.cols; i++) {
-		float k = sqrt(invertPoly(lensDistortion[0], lensDistortion[1], radius[i]) / radius[i]);
-		rp.col(i) *= k;
-	}*/
-	return rp.t();
+	for (int i=0; i < points.rows; i++) {
+		float *p = points.ptr<float>(i);
+		float radSquared = (p[0]*p[0] + p[1]*p[1]*aspect*aspect)/4;
+		float k = 1 + radSquared * (lensDistortion[0] + radSquared * lensDistortion[1]); 
+		points.row(i) *= k;
+	}
 }
 
 const Mat Configuration::reprojectPoints(const int frameNo) {
 	Mat projectedPoints = (camera(frameNo) * bundles.t()).t();
 	Mat cartesianPoints = dehomogenize(projectedPoints);
-	//FIXME NOTE: já je ale chci distort, ne?
-	Mat undistortedPoints = screenToCamera(cartesianPoints, lensDistortion);
-	return undistortedPoints;
+	cameraToScreen(cartesianPoints, lensDistortion, (float)height/(float)width);
+	return cartesianPoints;
 }
-// END MESSY SHIT BLOCK
 
 void Configuration::estimateExposure()
 //TODO: je potřeba to převést na poctivou korekci bílé. Možná dokonce CAM?
@@ -189,13 +172,13 @@ void Configuration::estimateExposure()
 		float *re = reprojected.ptr<float>(0);
 		for (int j=0; j<pointCount; j++) {
 			//if it is enabled in this frame:
-			float imageX = re[j*2]/2*width + centerX, imageY = height - (re[j*2 + 1]/2*height + centerY);
+			float imageX = centerX + re[j*3]*width*0.5 , imageY = height - centerY - re[j*3 + 1]*height*0.5;
 			float sample;
 			if (bundlesEnabled[j].count(i) && (sample = sampleImage(image, 1, imageX, imageY)) > 0) {
 				br[i*pointCount + j] = sample;
 				we[i*pointCount + j] = 1.;
 			} else {
-				br[i*pointCount + j] = 0.;
+				br[i*pointCount + j] = 1.;
 				we[i*pointCount + j] = 0.;
 			}
 		}
@@ -211,8 +194,10 @@ void Configuration::estimateExposure()
 		for (int j=0; j<pointCount; j++) {
 			float sum = 0., weightSum = 0.;
 			for (int i=0; i<frameCount; i++) {
-				sum += br[i*pointCount + j] * we[i*pointCount + j] / exposure[i];
-				weightSum += we[i*pointCount + j];
+				if (exposure[i] > 0) {
+					sum += br[i*pointCount + j] * we[i*pointCount + j] / exposure[i];
+					weightSum += we[i*pointCount + j];
+				}
 			}
 			//pointColor[j] = weightedAvg(brightness[i, j]/exposure[i] over all i)
 			if (weightSum > 0)
@@ -224,8 +209,10 @@ void Configuration::estimateExposure()
 		for (int i=0; i<frameCount; i++) {
 			float sum = 0., weightSum = 0.;
 			for (int j=0; j<pointCount; j++) {
-				sum += br[i*pointCount + j] * we[i*pointCount + j] / pointColor[j];
-				weightSum += we[i*pointCount + j];
+				if (pointColor[j] > 0) {
+					sum += br[i*pointCount + j] * we[i*pointCount + j] / pointColor[j];
+					weightSum += we[i*pointCount + j];
+				}
 			}
 			//exposure[i] = weightedAvg(brightness[i, j]/pointColor[j] over all j)
 			if (weightSum > 0) {

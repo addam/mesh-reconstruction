@@ -28,6 +28,21 @@ int main(int argc, char ** argv) {
 		render->loadMesh(points, indices);
 
 		hint.chooseCameras(points, indices, config.allCameras());
+		if (config.verbosity >= 1) {
+			int fa = hint.beginMain();
+			if (fa == Heuristic::sentinel) {
+				printf(" Heuristic has chosen no cameras, which is an error. However, we have got nothing more to do.\n");
+				exit(1);
+			}
+			for (; fa != Heuristic::sentinel; fa = hint.nextMain()) {
+				printf("  main camera %i, side cameras ", fa);
+				for (int fb = hint.beginSide(fa); fb != Heuristic::sentinel; fb = hint.nextSide(fa)) {
+					printf("%i, ", fb);
+				}
+				printf("\n");
+			}
+		}
+
 		if (config.verbosity >= 1)
 			printf("Tracking the whole clip...\n");
 		for (int fa = hint.beginMain(); fa != Heuristic::sentinel; fa = hint.nextMain()) {
