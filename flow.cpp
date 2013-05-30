@@ -7,7 +7,7 @@
 Mat calculateFlow(Mat prev, Mat next)
 {
 	double pyr_scale = 0.5, poly_sigma = 1.5;
-	int levels = 3, winsize = 50, iterations = 10, poly_n = 9, flags = cv::OPTFLOW_FARNEBACK_GAUSSIAN;
+	int levels = 4, winsize = 20, iterations = 30, poly_n = 6, flags = cv::OPTFLOW_FARNEBACK_GAUSSIAN;
 	Mat flow;
 	Mat prev_gray, next_gray;
 	cv::cvtColor(prev,prev_gray,CV_RGB2GRAY);

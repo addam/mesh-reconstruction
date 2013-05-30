@@ -284,10 +284,9 @@ LabelledCameras filterCameras(Mat viewer, Mat depth, const std::vector<Mat> came
 	return filtered;
 }
 
-const CameraLabel* chooseMain(const Mat viewer, const std::vector<numberedVector> chosenCameras, LabelledCameras filteredCameras)
+const CameraLabel chooseMain(const Mat viewer, const std::vector<numberedVector> chosenCameras, LabelledCameras filteredCameras)
 {
-	if (filteredCameras.size() == 0)
-		return NULL;
+	assert (filteredCameras.size() > 0);
 	std::vector<float> weightSum(filteredCameras.size()+1, 0.);
 	{int i=0; for (LabelledCameras::const_iterator it = filteredCameras.begin(); it != filteredCameras.end(); it++, i++) {
 		CameraLabel label = it->first;
@@ -300,18 +299,15 @@ const CameraLabel* chooseMain(const Mat viewer, const std::vector<numberedVector
 	float choice = cv::randu<float>() * weightSum.back();
 	int index = bisect(weightSum, choice);
 	//printf("  I shot at %g from %g and thus decided for main camera %i (at position %i)\n", choice, weightSum.back(), filteredCameras[index].first.index, index);
-	return &(filteredCameras[index].first);
+	return filteredCameras[index].first;
 }
 
-const CameraLabel* chooseSide(const Mat viewer, const std::vector<int> chosenSideCameras, CameraLabel mainCamera, LabelledCameras filteredCameras)
+const CameraLabel chooseSide(const Mat viewer, const std::vector<int> chosenSideCameras, CameraLabel mainCamera, LabelledCameras filteredCameras)
 {
 	// TODO: try to pick similar depth as main, but different point of view than other side cameras
-	if (filteredCameras.size() == 1) {// mainCamera is surely in filteredCameras and we cannot pick it
-		printf(" No side cameras available\n");
-		return NULL;
-	}
+	assert (filteredCameras.size() > 1); // mainCamera is surely in filteredCameras and we cannot pick it
 	std::vector<float> weightSum(filteredCameras.size(), 0.);
-	std::vector<const CameraLabel*> labels(filteredCameras.size()-1, NULL);
+	std::vector<CameraLabel> labels;
 	int i=0;
 	for (LabelledCameras::const_iterator it = filteredCameras.begin(); it != filteredCameras.end(); it++) {
 		CameraLabel label = it->first;
@@ -321,13 +317,13 @@ const CameraLabel* chooseSide(const Mat viewer, const std::vector<int> chosenSid
 		if (myFind(chosenSideCameras, label.index) >= 0)
 			weight += 5;
 		weightSum[i+1] = weightSum[i] + weight;
-		labels[i] = &(it->first);
+		labels.push_back(it->first);
 		i++;
 	}
 	float choice = cv::randu<float>() * weightSum.back();
 	int index = bisect(weightSum, choice);
-	assert(index < i);
-	//printf("  I shot at %g from %g and thus decided for side camera %i (at position %i of %i)\n", choice, weightSum.back(), labels[index]->index, index, i);
+	assert(index >= 0 && index < i);
+	//printf("  I shot at %g from %g and thus decided for side camera %i (at position %i of %i)\n", choice, weightSum.back(), labels[index].index, index, i);
 	return labels[index];
 }
 
@@ -343,12 +339,12 @@ void Heuristic::chooseCameras(const Mat points, const Mat indices, const std::ve
 	      average = totalArea / indices.rows;
 	
 	std::vector<bool> used(false, indices.rows);
-	float bullets = 1; // expected count of shots, including misses ~ (frame count)/(bullets)
+	float bullets = 1; // expected count of shots, including misses ~ (face count)/(bullets)
 	cv::RNG random = cv::theRNG();
 	Render *render = spawnRender(*this);
 	render->loadMesh(points, indices);
 	std::vector<int> empty;
-	while (1) {
+	for (int shotCount = 0; shotCount < indices.rows; shotCount ++) {
 		float choice = cv::randu<float>() * (totalArea + average*bullets);
 		if (choice >= totalArea) {
 			// congratulations: you won the Russian roulette
@@ -363,37 +359,33 @@ void Heuristic::chooseCameras(const Mat points, const Mat indices, const std::ve
 			Mat viewer = faceCamera(points, indices, chosenIdx, far);
 			Mat depth = render->depth(viewer);
 			LabelledCameras filteredCameras = filterCameras(viewer, depth, cameras);
-			const CameraLabel *mainCamera = chooseMain(viewer, chosenCameras, filteredCameras);
-			if (mainCamera) {
+			if (filteredCameras.size() >= 2) {
+				CameraLabel mainCamera = chooseMain(viewer, chosenCameras, filteredCameras);
 				//printf(" Chosen main camera %i\n", mainCamera->index);
-				int positionMain = myFind(chosenCameras, mainCamera->index);
-				const CameraLabel *sideCamera;
-				if (positionMain != -1)
-					sideCamera = chooseSide(viewer, chosenCameras[positionMain].second, *mainCamera, filteredCameras);
-				else
-					sideCamera = chooseSide(viewer, empty, *mainCamera, filteredCameras);
-				if (sideCamera) {
-					//printf("  Chosen side camera %i\n", sideCamera->index);
-					if (positionMain < 0) {
-						chosenCameras.push_back(numberedVector(mainCamera->index, std::vector<int>(1, sideCamera->index)));
-					}	else {
-						int positionSide = myFind(chosenCameras[positionMain].second, sideCamera->index);
-						if (positionSide < 0)
-							chosenCameras[positionMain].second.push_back(sideCamera->index);
-					}
+				int positionMain = myFind(chosenCameras, mainCamera.index);
+				CameraLabel sideCamera;
+				if (positionMain == -1) {
+					positionMain = chosenCameras.size();
+					chosenCameras.push_back(numberedVector(mainCamera.index, std::vector<int>()));
+				}
+				sideCamera = chooseSide(viewer, chosenCameras[positionMain].second, mainCamera, filteredCameras);
+				//printf("  Chosen side camera %i\n", sideCamera.index);
+				if (myFind(chosenCameras[positionMain].second, sideCamera.index) < 0) {
+					chosenCameras[positionMain].second.push_back(sideCamera.index);
+				}
+				sideCamera = chooseSide(viewer, chosenCameras[positionMain].second, mainCamera, filteredCameras);
+				//printf("  Chosen side camera %i\n", sideCamera.index);
+				if (myFind(chosenCameras[positionMain].second, sideCamera.index) < 0) {
+					chosenCameras[positionMain].second.push_back(sideCamera.index);
 				}
 			}
 		}
-	}
-	//DEBUG:
-	std::sort(chosenCameras.begin(), chosenCameras.end());
-	for (int i=0; i<chosenCameras.size(); i++) {
-		printf("  main camera %i, side cameras ", chosenCameras[i].first);
-		for (int j=0; j<chosenCameras[i].second.size(); j++) {
-			printf("%i, ", chosenCameras[i].second[j]);
+		if (shotCount >= 200) {
+			printf("Fail. Total area: %g, average: %g, sampling range: %g. Managed to get %lu main cameras.\n", totalArea, average, totalArea + average*bullets, chosenCameras.size());
+			break;
 		}
-		printf("\n");
 	}
+	std::sort(chosenCameras.begin(), chosenCameras.end());
 }
 /*
 void Heuristic::chooseCameras(const Mat points, const Mat indices)
