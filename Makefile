@@ -4,6 +4,7 @@ CXXFLAGS = -g
 
 OPENCV_LIBS = -lopencv_core -lopencv_calib3d -lopencv_video -lopencv_highgui -lopencv_imgproc -lopencv_flann
 ALPHA_SHAPES_LIBS = -lCGAL -lboost_thread -lgmp
+PCL_LIBS = -lpcl_common -lpcl_kdtree -lpcl_search -lpcl_features -lpcl_io -lpcl_surface -I/usr/local/include/pcl-1.6 -I/usr/include/eigen3 -Wno-deprecated-declarations
 RENDER_glx_LIBS = -lGL -lGLEW -lopencv_highgui -lX11
 
 LIBS = ${ALPHA_SHAPES_LIBS} ${RENDER_${SYSTEM_OPENGL}_LIBS} ${OPENCV_LIBS}
@@ -38,6 +39,10 @@ test: recon
 test_alpha_shapes: alpha_shapes.cpp
 	${CXX} ${CXXFLAGS} alpha_shapes.cpp -frounding-math -O2 ${ALPHA_SHAPES_LIBS} -lopencv_core -DTEST_BUILD -o test_alpha_shapes
 	/usr/bin/time -f '%e seconds, %M kBytes' ./test_alpha_shapes
+
+test_pcl: pcl.cpp
+	${CXX} ${CXXFLAGS} pcl.cpp -O2 ${PCL_LIBS} -lopencv_core -DTEST_BUILD -o test_pcl
+	/usr/bin/time -f '%e seconds, %M kBytes' ./test_pcl
 
 test_glx: render_glx.cpp shaders.hpp
 	${CXX} ${CXXFLAGS} render_glx.cpp ${RENDER_glx_LIBS} -lopencv_core -lopencv_highgui -DTEST_BUILD -o glx

@@ -1,6 +1,9 @@
 #ifndef RECON_HPP
 #define RECON_HPP
 
+#define WITH_CGAL
+#define WITH_PCL
+
 #include <opencv2/core/core.hpp>
 #include <list>
 #include <vector>
@@ -12,6 +15,9 @@
 
 typedef unsigned char uchar;
 typedef cv::Mat Mat;
+typedef struct Mesh{
+	Mat vertices, faces;
+	Mesh(Mat v, Mat m):vertices(v), faces(m) {};} Mesh;
 typedef std::list<Mat> MatList;
 
 class Configuration;
@@ -19,10 +25,18 @@ class Heuristic;
 
 const float backgroundDepth = 1.0;
 
-
+#ifdef WITH_CGAL
 // alpha_shapes.cpp
 Mat alphaShapeIndices(const Mat points);
 Mat alphaShapeIndices(const Mat points, float *alpha); //'alpha' is currently just written to, not used
+#endif
+
+#ifdef WITH_PCL
+// pcl.cpp
+Mesh greedyProjection(const Mat points, const Mat normals);
+Mesh poissonSurface(const Mat points, const Mat normals);
+Mesh rbfSurface(const Mat points, const Mat normals);
+#endif
 
 // flow.cpp
 Mat calculateFlow(const Mat prev, const Mat next);
