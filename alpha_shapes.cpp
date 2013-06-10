@@ -28,7 +28,7 @@ typedef Alpha_shape_3::Cell Cell;
 typedef Gt::Point_3 Point;
 typedef Alpha_shape_3::Alpha_iterator Alpha_iterator;
 
-Mat alphaShapeIndices(Mat points, float *alpha)
+Mat alphaShapeFaces(Mat points, float *alpha)
 // alpha is only a side output, its original value is not used
 {
 	if (points.rows == 0 || points.cols == 0)
@@ -79,9 +79,9 @@ Mat alphaShapeIndices(Mat points, float *alpha)
 	return result;
 }
 
-Mat alphaShapeIndices(Mat points)
+Mat alphaShapeFaces(Mat points)
 {
-	return alphaShapeIndices(points, NULL);
+	return alphaShapeFaces(points, NULL);
 }
 
 #ifdef TEST_BUILD

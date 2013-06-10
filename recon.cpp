@@ -13,21 +13,21 @@ int main(int argc, char ** argv) {
 	Mat points = config.reconstructedPoints();
 	if (config.verbosity >= 2)
 		printf(" Loaded %i points\n", points.rows);
+	Mat normals(Mat::zeros(points.rows, 3, CV_32FC1));
 	
 	while (hint.notHappy(points)) {
 		//sestav z nich alphashape
 		float alpha;
 		if (config.verbosity >= 1)
-			printf("Calculating alpha shape...\n");
-		Mat indices = alphaShapeIndices(points, &alpha);
+			printf("Tesselating...\n");
+		Mesh mesh = hint.tesselate(points, normals);
 		if (config.verbosity >= 2)
-			printf(" %i faces.\n", indices.rows);
-		hint.logAlpha(alpha);
+			printf(" %i faces.\n", mesh.faces.rows);
 		if (config.verbosity >= 3)
-			saveMesh(points, indices, "recon_orig.obj");
-		render->loadMesh(points, indices);
+			saveMesh(mesh, "recon_orig.obj");
+		render->loadMesh(mesh);
 
-		hint.chooseCameras(points, indices, config.allCameras());
+		hint.chooseCameras(mesh, config.allCameras());
 		if (config.verbosity >= 1) {
 			int fa = hint.beginMain();
 			if (fa == Heuristic::sentinel) {
@@ -89,22 +89,25 @@ int main(int argc, char ** argv) {
 				cameras.push_back(config.camera(fb));
 			}
 			//trianguluj všechny pixely
-			points.push_back(triangulatePixels(flows, config.camera(fa), cameras, depth));
+			Mat newPoints = triangulatePixels(flows, config.camera(fa), cameras, depth);
+			points.push_back(newPoints);
+			cameras.push_back(config.camera(fa));
+			normals.push_back(averageNormals(newPoints, cameras));
 			if (config.verbosity >= 2)
 				printf(" After processing main frame %i: %i points\n", fa, points.rows);
 		}
-		hint.filterPoints(points);
+		hint.filterPoints(points, normals);
 		if (config.verbosity >= 2)
 			printf(" %i filtered points\n", points.rows);
 	}
 	delete render;
 	//vysypej triangulované body jako obj
 	if (config.verbosity >= 1)
-		printf("Calculating final alpha shape...\n");
-	Mat indices = alphaShapeIndices(points);
+		printf("Calculating final mesh...\n");
+	Mesh mesh = hint.tesselate(points, normals);
 	if (config.verbosity >= 2)
-		printf(" %i faces\n", indices.rows);
-	saveMesh(points, indices, "triangulated.obj");
+		printf(" %i faces\n", mesh.faces.rows);
+	saveMesh(mesh, "triangulated.obj");
 	if (config.verbosity >= 2)
 		printf(" Saved, done.\n");
 	return 0;

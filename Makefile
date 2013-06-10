@@ -4,17 +4,17 @@ CXXFLAGS = -g
 
 OPENCV_LIBS = -lopencv_core -lopencv_calib3d -lopencv_video -lopencv_highgui -lopencv_imgproc -lopencv_flann
 ALPHA_SHAPES_LIBS = -lCGAL -lboost_thread -lgmp
-PCL_LIBS = -lpcl_common -lpcl_kdtree -lpcl_search -lpcl_features -lpcl_io -lpcl_surface -I/usr/local/include/pcl-1.6 -I/usr/include/eigen3 -Wno-deprecated-declarations
+PCL_LIBS = -lpcl_common -lpcl_kdtree -lpcl_search -lpcl_surface
 RENDER_glx_LIBS = -lGL -lGLEW -lopencv_highgui -lX11
 
-LIBS = ${ALPHA_SHAPES_LIBS} ${RENDER_${SYSTEM_OPENGL}_LIBS} ${OPENCV_LIBS}
-FILES = recon.cpp flow.cpp alpha_shapes.cpp heuristic.cpp configuration.cpp util.cpp render_${SYSTEM_OPENGL}.o
+LIBS = ${ALPHA_SHAPES_LIBS} ${RENDER_${SYSTEM_OPENGL}_LIBS} ${OPENCV_LIBS} ${PCL_LIBS}
+FILES = recon.cpp flow.cpp alpha_shapes.cpp heuristic.cpp configuration.cpp util.cpp render_${SYSTEM_OPENGL}.cpp pcl.cpp
 OBJS = recon.o flow.o alpha_shapes.o heuristic.o configuration.o
 
 all: recon
 
-recon: recon.o alpha_shapes.o render_${SYSTEM_OPENGL}.o heuristic.o configuration.o util.o flow.o
-	${CXX} ${CXXFLAGS} recon.hpp recon.o alpha_shapes.o render_${SYSTEM_OPENGL}.o heuristic.o configuration.o util.o flow.o ${LIBS} -o recon
+recon: recon.o alpha_shapes.o render_${SYSTEM_OPENGL}.o heuristic.o configuration.o util.o flow.o pcl.o
+	${CXX} ${CXXFLAGS} recon.hpp recon.o alpha_shapes.o render_${SYSTEM_OPENGL}.o heuristic.o configuration.o util.o flow.o pcl.o ${LIBS} -o recon
 
 recon.o: recon.cpp
 heuristic.o: heuristic.cpp
@@ -22,6 +22,9 @@ flow.o: flow.cpp
 configuration.o: configuration.cpp
 util.o: util.cpp
 render_glx.o: render_glx.cpp shaders.hpp
+
+pcl.o: pcl.cpp
+	${CXX} ${CXXFLAGS} -c pcl.cpp -I/usr/local/include/pcl-1.6 -I/usr/include/eigen3 -Wno-deprecated-declarations
 
 alpha_shapes.o: alpha_shapes.cpp
 	${CXX} ${CXXFLAGS} -c alpha_shapes.cpp -frounding-math -o alpha_shapes.o
@@ -41,7 +44,7 @@ test_alpha_shapes: alpha_shapes.cpp
 	/usr/bin/time -f '%e seconds, %M kBytes' ./test_alpha_shapes
 
 test_pcl: pcl.cpp
-	${CXX} ${CXXFLAGS} pcl.cpp -O2 ${PCL_LIBS} -lopencv_core -DTEST_BUILD -o test_pcl
+	${CXX} ${CXXFLAGS} pcl.cpp -O2 -I/usr/local/include/pcl-1.6 -I/usr/include/eigen3 -Wno-deprecated-declarations ${PCL_LIBS} -lpcl_io -lpcl_features -lopencv_core -DTEST_BUILD -o test_pcl -g
 	/usr/bin/time -f '%e seconds, %M kBytes' ./test_pcl
 
 test_glx: render_glx.cpp shaders.hpp

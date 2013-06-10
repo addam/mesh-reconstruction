@@ -184,6 +184,33 @@ Mat triangulatePixels(const MatList flows, const Mat mainCamera, const MatList c
 	return points;
 }
 
+Mat averageNormals(const Mat points, MatList cameras)
+{
+	Mat cameraCenters(cameras.size(), 3, CV_32FC1);
+	{int i=0; for (MatList::const_iterator camera=cameras.begin(); camera!=cameras.end(); camera++, i++) {
+		Mat projection(3, 4, CV_32FC1);
+		camera->rowRange(0,2).copyTo(projection.rowRange(0,2));
+		camera->row(3).copyTo(projection.row(2));
+		Mat K, R, T;
+		cv::decomposeProjectionMatrix(projection, K, R, T);
+		T = T.t() / T.at<float>(3);
+		T.colRange(0,3).copyTo(cameraCenters.row(i));
+	}}
+	Mat normals(points.rows, 3, CV_32FC1);
+	for (int i=0; i<points.rows; i++) {
+		Mat point = points.row(i) / points.at<float>(i,3);
+		point = point.colRange(0,3);
+		for (int c=0; c<cameras.size(); c++) {
+			Mat direction = cameraCenters.row(c) - point;
+			float distanceSqr = direction.dot(direction);
+			normals.row(i) += direction / distanceSqr;
+		}
+	}
+	Mat normalsTmp = normals.reshape(3);
+	cv::normalize(normalsTmp, normalsTmp); 
+	return normals;
+}
+
 Mat compare(const Mat prev, const Mat next)
 {
 	std::vector<Mat> diffPyramid;
@@ -338,15 +365,15 @@ void saveImage(const Mat image, const char *fileName, bool normalize)
 	}
 }
 
-void saveMesh(Mat points, Mat indices, const char *fileName)
+void saveMesh(const Mesh mesh, const char *fileName)
 {
 	std::ofstream os(fileName);
-	for(int i=1; i <= points.rows; i ++) {
-		const float* row = points.ptr<float>(i-1);
+	for(int i=0; i < mesh.vertices.rows; i ++) {
+		const float* row = mesh.vertices.ptr<float>(i);
 		os << "v " << row[0]/row[3] << ' ' << row[1]/row[3] << ' ' << row[2]/row[3] << std::endl;
 	}
-	for (int i=0; i < indices.rows; i++){
-		const int32_t* row = indices.ptr<int32_t>(i);
+	for (int i=0; i < mesh.faces.rows; i++){
+		const int32_t* row = mesh.faces.ptr<int32_t>(i);
 		os << "f " << row[0]+1 << ' ' << row[1]+1 << ' ' << row[2]+1 << std::endl;
 	}
 	os.close();

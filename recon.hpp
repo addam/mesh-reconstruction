@@ -17,7 +17,7 @@ typedef unsigned char uchar;
 typedef cv::Mat Mat;
 typedef struct Mesh{
 	Mat vertices, faces;
-	Mesh(Mat v, Mat m):vertices(v), faces(m) {};} Mesh;
+	Mesh(Mat v, Mat f):vertices(v), faces(f) {};} Mesh;
 typedef std::list<Mat> MatList;
 
 class Configuration;
@@ -27,8 +27,8 @@ const float backgroundDepth = 1.0;
 
 #ifdef WITH_CGAL
 // alpha_shapes.cpp
-Mat alphaShapeIndices(const Mat points);
-Mat alphaShapeIndices(const Mat points, float *alpha); //'alpha' is currently just written to, not used
+Mat alphaShapeFaces(const Mat points);
+Mat alphaShapeFaces(const Mat points, float *alpha); //'alpha' is currently just written to, not used
 #endif
 
 #ifdef WITH_PCL
@@ -43,6 +43,7 @@ Mat calculateFlow(const Mat prev, const Mat next);
 
 // util.cpp
 Mat triangulatePixels(const MatList flows, const Mat mainCamera, const MatList cameras, const Mat depth); //mělo by to jako poslední kanál zaznamenávat chybovou míru, aspoň nějak urvat
+Mat averageNormals(const Mat points, MatList cameras);
 Mat compare(const Mat prev, const Mat next);
 Mat dehomogenize(Mat points);
 Mat dehomogenize2D(const Mat points);
@@ -52,7 +53,7 @@ void mixBackground(Mat image, const Mat background, const Mat depth);
 Mat flowRemap(const Mat flow, const Mat image);
 void saveImage(const Mat image, const char *fileName);
 void saveImage(const Mat image, const char *fileName, bool normalize);
-void saveMesh(const Mat points, const Mat indices, const char *fileName);
+void saveMesh(const Mesh, const char *fileName);
 Mat imageGradient(const Mat image);
 void addChannel(MatList dest, const Mat src);
 
@@ -62,9 +63,9 @@ class Configuration {
 		Configuration(int argc, char** argv);
 		~Configuration();
 		Mat reconstructedPoints();
-		const Mat frame(int frameNo);
-		const Mat camera(int frameNo);
-		const std::vector<Mat> allCameras();
+		const Mat frame(int frameNo) const;
+		const Mat camera(int frameNo) const;
+		const std::vector<Mat> allCameras() const;
 		const float near(int frameNo);
 		const float far(int frameNo);
 		const int frameCount();
@@ -87,7 +88,7 @@ class Configuration {
 class Render {
 	public:
 		virtual ~Render() {};
-		virtual void loadMesh(const Mat points, const Mat indices) = 0;
+		virtual void loadMesh(const Mesh) = 0;
 		virtual Mat projected(const Mat camera, const Mat frame, const Mat projector) = 0;
 		virtual Mat depth(const Mat camera) = 0;
 		//TODO: virtual Mat depth(const Mat camera, int width, int height) = 0;
@@ -99,14 +100,14 @@ typedef std::pair <int, std::vector <int> > numberedVector;
 class Heuristic {
 	public:
 		Heuristic(Configuration *iconfig);
-		void chooseCameras(const Mat points, const Mat indices, const std::vector<Mat> cameras);
+		void chooseCameras(const Mesh mesh, const std::vector<Mat> cameras);
 		bool notHappy(const Mat points);
 		int beginMain(); // initialize and return frame number for first main camera
 		int nextMain(); // return frame number for next main camera
 		int beginSide(int mainNumber); // initialize and return frame number for first side camera
 		int nextSide(int mainNumber); // return frame number for next side camera
-		void filterPoints(Mat& points);
-		void logAlpha(float alpha);
+		void filterPoints(Mat& points, Mat& normals);
+		Mesh tesselate(const Mat points, const Mat normals);
 		static const int sentinel = -1;
 	protected:
 		Configuration *config;

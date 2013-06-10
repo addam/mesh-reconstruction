@@ -254,17 +254,17 @@ Mat Configuration::reconstructedPoints()
 	return bundles;
 }
 
-const Mat Configuration::frame(int frameNo)
+const Mat Configuration::frame(int frameNo) const
 {
 	return frames[frameNo];
 }
 
-const Mat Configuration::camera(int frameNo)
+const Mat Configuration::camera(int frameNo) const
 {
 	return cameras[frameNo];
 }
 
-const std::vector<Mat> Configuration::allCameras()
+const std::vector<Mat> Configuration::allCameras() const
 {
 	return vector<Mat> (cameras);
 }

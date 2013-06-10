@@ -13,7 +13,7 @@ Heuristic::Heuristic(Configuration *iconfig)
 bool Heuristic::notHappy(const Mat points)
 {
 	iteration ++;
-	return (iteration <= 1);
+	return (iteration <= 2);
 }
 
 const inline float pow2(float x)
@@ -26,7 +26,7 @@ const inline float densityFn(float dist, float radius)
 	return (1. - dist/radius);
 }
 
-void Heuristic::filterPoints(Mat& points)
+void Heuristic::filterPoints(Mat& points, Mat& normals)
 {
 	printf("Filtering: Preparing neighbor table...\n");
 	int pointCount = points.rows;
@@ -121,8 +121,10 @@ void Heuristic::filterPoints(Mat& points)
 	for (int i=0; i<writeIndex; i++) {
 		if (order[i] > i)
 			points.row(order[i]).copyTo(points.row(i)); //to můžu udělat díky tomu, že jsem indexy setřídil
+			normals.row(order[i]).copyTo(normals.row(i));
 	}
 	points.resize(writeIndex);
+	normals.resize(writeIndex);
 }
 /*
 void Heuristic::filterPoints(Mat points)
@@ -154,10 +156,12 @@ float faceArea(Mat points, int ia, int ib, int ic)
 	return cv::norm(e.cross(f))/2;
 }
 
-const Mat faceCamera(const Mat points, const Mat indices, int faceIdx, float far)
+const Mat faceCamera(const Mesh mesh, int faceIdx, float far, float focal)
 {
-	const int32_t *vertIdx = indices.ptr<int32_t>(faceIdx);
-	Mat a(points.row(vertIdx[0])), b(points.row(vertIdx[1])), c(points.row(vertIdx[2]));
+	const int32_t *vertIdx = mesh.faces.ptr<int32_t>(faceIdx);
+	Mat a(mesh.vertices.row(vertIdx[0])),
+	    b(mesh.vertices.row(vertIdx[1])),
+	    c(mesh.vertices.row(vertIdx[2]));
 	a = a.colRange(0,3) / a.at<float>(3);
 	b = b.colRange(0,3) / b.at<float>(3);
 	c = c.colRange(0,3) / c.at<float>(3);
@@ -189,8 +193,7 @@ const Mat faceCamera(const Mat points, const Mat indices, int faceIdx, float far
 			0, 0, 0, 1));
 	}
 
-	float focal = 0.25, // focal length
-	      near = 0.001;//normalLength/4; // just a value with length units...
+	float near = 0.001;//normalLength/4; // just a value with length units...
 	Mat K(cv::Matx44f(
 		focal, 0, 0, 0,
 		0, focal, 0, 0,
@@ -327,24 +330,24 @@ const CameraLabel chooseSide(const Mat viewer, const std::vector<int> chosenSide
 	return labels[index];
 }
 
-void Heuristic::chooseCameras(const Mat points, const Mat indices, const std::vector<Mat> cameras)
+void Heuristic::chooseCameras(const Mesh mesh, const std::vector<Mat> cameras)
 {
 	chosenCameras.clear();
-	std::vector<float> areaSum(indices.rows+1, 0.); //TODO: this needs not be a vector, array would be OK
-	for (int i=0; i<indices.rows; i++) {
-		const int32_t *vertIdx = indices.ptr<int32_t>(i);
-		areaSum[i+1] = areaSum[i] + faceArea(points, vertIdx[0], vertIdx[1], vertIdx[2]);
+	std::vector<float> areaSum(mesh.faces.rows+1, 0.); //TODO: this needs not be a vector, array would be OK
+	for (int i=0; i<mesh.faces.rows; i++) {
+		const int32_t *vertIdx = mesh.faces.ptr<int32_t>(i);
+		areaSum[i+1] = areaSum[i] + faceArea(mesh.vertices, vertIdx[0], vertIdx[1], vertIdx[2]);
 	}
 	float totalArea = areaSum.back(),
-	      average = totalArea / indices.rows;
+	      average = totalArea / mesh.faces.rows;
 	
-	std::vector<bool> used(false, indices.rows);
+	std::vector<bool> used(false, mesh.faces.rows);
 	float bullets = 1; // expected count of shots, including misses ~ (face count)/(bullets)
 	cv::RNG random = cv::theRNG();
 	Render *render = spawnRender(*this);
-	render->loadMesh(points, indices);
+	render->loadMesh(mesh);
 	std::vector<int> empty;
-	for (int shotCount = 0; shotCount < indices.rows; shotCount ++) {
+	for (int shotCount = 0; shotCount < mesh.faces.rows; shotCount ++) {
 		float choice = cv::randu<float>() * (totalArea + average*bullets);
 		if (choice >= totalArea) {
 			// congratulations: you won the Russian roulette
@@ -356,7 +359,8 @@ void Heuristic::chooseCameras(const Mat points, const Mat indices, const std::ve
 			int chosenIdx = bisect(areaSum, choice);
 			//printf(" Projecting from face %i\n", chosenIdx);
 			float far = 10; //FIXME: nastavit na nejvzdálenější kameru
-			Mat viewer = faceCamera(points, indices, chosenIdx, far);
+			float focal = 0.25; //TODO: zmenšovat, pokud je kamer málo
+			Mat viewer = faceCamera(mesh, chosenIdx, far, focal);
 			Mat depth = render->depth(viewer);
 			LabelledCameras filteredCameras = filterCameras(viewer, depth, cameras);
 			if (filteredCameras.size() >= 2) {
@@ -441,7 +445,17 @@ int Heuristic::nextSide(int imain)
 	else
 		return chosenCameras[mainIdx].second[sideIdx];
 }
-void Heuristic::logAlpha(float alpha)
+Mesh Heuristic::tesselate(const Mat points, const Mat normals)
 {
-	alphaVals.push_back(alpha);
+	//TODO: add ifdefs for CGAL and PCL (and others..?)
+	if (iteration <= 1) {
+		float alpha;
+		Mat faces = alphaShapeFaces(points, &alpha);
+		alphaVals.push_back(alpha);
+		return Mesh(points, faces);
+	} else {
+		Mesh result = poissonSurface(points, normals);
+		alphaVals.push_back(alphaVals.back() / 2);
+		return result;
+	}
 }

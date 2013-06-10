@@ -32,7 +32,7 @@ class RenderGLX: public Render {
 	public:
 		RenderGLX(int width, int height, char *displayName);
 		~RenderGLX();
-		virtual void loadMesh(const Mat points, const Mat indices);
+		virtual void loadMesh(const Mesh mesh);
 		virtual Mat projected(const Mat camera, const Mat frame, const Mat projector);
 		virtual Mat depth(const Mat camera);		
 	protected:
@@ -190,15 +190,16 @@ RenderGLX::~RenderGLX()
 	XCloseDisplay(display);
 }
 
-void RenderGLX::loadMesh(const Mat points, const Mat indices) {
-	assert (indices.isContinuous() && points.isContinuous());
+void RenderGLX::loadMesh(const Mesh mesh) {
+	assert (mesh.vertices.isContinuous() && mesh.faces.isContinuous());
 
-	int face_count = indices.rows;
+	int face_count = mesh.faces.rows;
 	vertex_count = face_count*3;
 	GLfloat *vertex_buffer_data = new GLfloat[3*vertex_count];
 	for (int i=0; i < face_count; i++) {
+		const int32_t *face = mesh.faces.ptr<int32_t>(i);
 		for (int j=0; j < 3; j++) {
-			const float *point = points.ptr<float>(indices.at<int32_t>(i, j));
+			const float *point = mesh.vertices.ptr<float>(face[j]);
 			vertex_buffer_data[3*(3*i+j)+0] = point[0]/point[3];
 			vertex_buffer_data[3*(3*i+j)+1] = point[1]/point[3];
 			vertex_buffer_data[3*(3*i+j)+2] = point[2]/point[3];

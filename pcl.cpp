@@ -13,7 +13,7 @@
 	#include <utility>
 	#include <opencv2/core/core.hpp>
 	typedef cv::Mat Mat;
-	typedef struct Mesh{Mat vertices, faces; Mesh(Mat v, Mat m):vertices(v), faces(m) {};} Mesh;
+	typedef struct Mesh{Mat vertices, faces; Mesh(Mat v, Mat f):vertices(v), faces(f) {};} Mesh;
 #else
 	#include "recon.hpp"
 #endif
@@ -22,13 +22,15 @@ typedef pcl::PointCloud<pcl::PointNormal> NormalCloud;
 NormalCloud::Ptr convert(const Mat points, const Mat normals)
 {
 	NormalCloud::Ptr cloud(new NormalCloud);
-	assert(points.cols == normals.cols);
-	cloud->reserve(points.cols);
-	for (int i=0; i<points.cols; i++) {
+	assert(points.rows == normals.rows);
+	cloud->reserve(points.rows);
+	for (int i=0; i<points.rows; i++) {
 		pcl::PointNormal p;
+		const float* point = points.ptr<float>(i);
+		const float* normal = normals.ptr<float>(i);
 		for (char j=0; j<3; j++) {
-			p.data[j] = points.at<float>(j,i) / points.at<float>(3,i);
-			p.normal[j] = normals.at<float>(j,i);
+			p.data[j] = point[j] / point[3];
+			p.normal[j] = normal[j];
 		}
 		cloud->push_back(p);
 	}
@@ -67,48 +69,17 @@ int convert(Mesh dst, const pcl::PolygonMesh &mesh)
 		}
 	}
 	
-	for (char j=0; j<3; j++) {
-		size_t d = field_map[j];
-		float *coords = dst.vertices.ptr<float>(j);
-	  for (int i = 0; i < nr_points; ++i) {
-			float* src = (float*) (&mesh.cloud.data[i*point_size + d]);
-			coords[i] = *src;
+  for (int i = 0; i < nr_points; ++i) {
+		float *vertex = dst.vertices.ptr<float>(i);
+		for (char j=0; j<3; j++) {
+			float *src = (float*) (&mesh.cloud.data[i*point_size + field_map[j]]);
+			vertex[j] = *src;
     }
+    vertex[3] = 1;
 	}
-
-  /*if(normal_index != -1)
-  {    
-    fs << "# Normals in (x,y,z) form; normals might not be unit." <<  std::endl;
-    // Write vertex normals
-    for (int i = 0; i < nr_points; ++i) {
-      int nxyz = 0;
-      for (size_t d = 0; d < mesh.cloud.fields.size (); ++d) {
-        int c = 0;
-        // adding vertex
-        if ((mesh.cloud.fields[d].datatype == sensor_msgs::PointField::FLOAT32) && (
-              mesh.cloud.fields[d].name == "normal_x" ||
-              mesh.cloud.fields[d].name == "normal_y" ||
-              mesh.cloud.fields[d].name == "normal_z")) {
-          if (mesh.cloud.fields[d].name == "normal_x")
-            fs << "vn ";
-          
-          float value;
-          memcpy (&value, &mesh.cloud.data[i * point_size + mesh.cloud.fields[d].offset + c * sizeof (float)], sizeof (float));
-          fs << value;
-          if (++nxyz == 3)
-            break;
-          fs << " ";
-        }
-      }
-      if (nxyz != 3)
-      {
-        PCL_ERROR ("[pcl::io::saveOBJFile] Input point cloud has no normals!\n");
-        return (-2);
-      }
-      fs << std::endl;
-    }
-  }*/
-
+	
+	// let us ignore output point normals
+	
 	for (int i=0; i<nr_faces; i++) {
 		assert(mesh.polygons[i].vertices.size() == 3);
 		int32_t* verts = dst.faces.ptr<int32_t>(i);
@@ -132,7 +103,7 @@ Mesh poissonSurface(const Mat points, const Mat normals)
 	pcl::PolygonMesh mesh;
  	poisson.reconstruct(mesh);
 
-	Mesh result(Mat(4, mesh.cloud.width * mesh.cloud.height, CV_32FC1), Mat(mesh.polygons.size(), 3, CV_32SC1));
+	Mesh result(Mat(mesh.cloud.width * mesh.cloud.height, 4, CV_32FC1), Mat(mesh.polygons.size(), 3, CV_32SC1));
 	//pcl::io::saveOBJFile("temp_poisson.obj", mesh);
 	convert(result, mesh);
 	return result;
@@ -148,7 +119,7 @@ Mesh rbfSurface(const Mat points, const Mat normals)
 	pcl::PolygonMesh mesh;
  	mc.reconstruct(mesh);
 	
-	Mesh result(Mat(4, mesh.cloud.width * mesh.cloud.height, CV_32FC1), Mat(mesh.polygons.size(), 3, CV_32SC1));
+	Mesh result(Mat(mesh.cloud.width * mesh.cloud.height, 4, CV_32FC1), Mat(mesh.polygons.size(), 3, CV_32SC1));
 	convert(result, mesh);
 	return result;
 }
@@ -196,8 +167,9 @@ Mat estimatedNormals(Mat points)
 	cloud->reserve(points.rows);
 	for (int i=0; i<points.rows; i++) {
 		pcl::PointXYZ p;
+		float *vertex = points.ptr<float>(i);
 		for (char j=0; j<3; j++) {
-			p.data[j] = points.at<float>(i,j);
+			p.data[j] = vertex[j] / vertex[3];
 		}
 		cloud->push_back(p);
 	}
@@ -211,10 +183,11 @@ Mat estimatedNormals(Mat points)
   n.setKSearch (20);
   n.compute (*normals);
   
-  Mat result(3, normals->width, CV_32FC1);
+  Mat result(normals->width, 3, CV_32FC1);
 	for (int i=0; i<normals->width; i++) {
+		float *normal = result.ptr<float>(i);
 		for (char j=0; j<3; j++) {
-			result.at<float>(j, i) = (*normals)(i,0).normal[j]; // slow as hell
+			normal[j] = (*normals)(i,0).normal[j];
 		}
 	}
   return result;
@@ -229,25 +202,29 @@ int main()
 	int n;
 	is >> n;
 	std::cout << "Reading " << n << " points..." << std::endl;
-	Mat points(0, 1, CV_32FC3);
-	cv::Point3f point;
+	Mat points(0, 1, CV_32FC4);
+	cv::Scalar_<float> point;
+	point[3] = 1;
 	for(int i=0; i < n; i ++) {
-		is >> point.x >> point.y >> point.z;
+		is >> point[0] >> point[1] >> point[2];
 		points.push_back(point);
 	}
 	is.close();
 	points = points.reshape(1);
 	std::cout << points.rows << " points, " << points.cols << " dimensions" << std::endl;
+	for(int i=0; i < n; i ++) {
+		for (int j=0; j<3; j++)
+			assert (points.at<float>(i,j) <= 0 || points.at<float>(i,j) > 0);
+		assert (points.at<float>(i,3) != 0);
+	}
 	std::cout << "Calculating normals..." << std::endl;
 	Mat normals = estimatedNormals(points);
 	std::cout << "Calculating surface..." << std::endl;
-	points = points.t();
-	Mat lastrow (Mat::ones(1, points.cols, CV_32FC1));
-	points.push_back(lastrow); //homogenize
 	Mesh result = poissonSurface(points, normals);//greedyProjection(points, normals);
-	std::cout << result.vertices.cols << " vertices, " << result.faces.rows << " faces" << std::endl;
-	for(int i=0; i < result.vertices.cols; i ++) {
-		os << "v " << result.vertices.at<float>(0,i) << ' ' << result.vertices.at<float>(1,i) << ' ' << result.vertices.at<float>(2,i) << std::endl;
+	std::cout << result.vertices.rows << " vertices, " << result.faces.rows << " faces" << std::endl;
+	for(int i=0; i < result.vertices.rows; i ++) {
+		const float* row = result.vertices.ptr<float>(i);
+		os << "v " << row[0] << ' ' << row[1] << ' ' << row[2] << std::endl;
 	}
 	for (int i=0; i < result.faces.rows; i++) {
 		const int32_t* row = result.faces.ptr<int32_t>(i);
