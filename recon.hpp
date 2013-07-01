@@ -18,6 +18,9 @@ typedef cv::Mat Mat;
 typedef struct Mesh{
 	Mat vertices, faces;
 	Mesh(Mat v, Mat f):vertices(v), faces(f) {};} Mesh;
+typedef struct DensityPoint{
+	Mat point; float density;
+	DensityPoint(Mat p, float d):point(p), density(d) {};} DensityPoint;
 typedef std::list<Mat> MatList;
 
 class Configuration;
@@ -42,6 +45,7 @@ Mesh rbfSurface(const Mat points, const Mat normals);
 Mat calculateFlow(const Mat prev, const Mat next);
 
 // util.cpp
+Mat extractCameraCenter(const Mat camera);
 Mat triangulatePixels(const MatList flows, const Mat mainCamera, const MatList cameras, const Mat depth); //mělo by to jako poslední kanál zaznamenávat chybovou míru, aspoň nějak urvat
 Mat averageNormals(const Mat points, MatList cameras);
 Mat compare(const Mat prev, const Mat next);
@@ -69,6 +73,7 @@ class Configuration {
 		const float near(int frameNo);
 		const float far(int frameNo);
 		const int frameCount();
+		int iterationCount;
 		char verbosity;
 	protected:
 		const Mat reprojectPoints(int frame);

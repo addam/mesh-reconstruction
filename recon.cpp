@@ -89,10 +89,10 @@ int main(int argc, char ** argv) {
 				cameras.push_back(config.camera(fb));
 			}
 			//trianguluj všechny pixely
-			Mat newPoints = triangulatePixels(flows, config.camera(fa), cameras, depth);
-			points.push_back(newPoints);
+			Mat triangData = triangulatePixels(flows, config.camera(fa), cameras, depth);
+			points.push_back(triangData.colRange(0,4));
+			normals.push_back(triangData.colRange(4,7));
 			cameras.push_back(config.camera(fa));
-			normals.push_back(averageNormals(newPoints, cameras));
 			if (config.verbosity >= 2)
 				printf(" After processing main frame %i: %i points\n", fa, points.rows);
 		}

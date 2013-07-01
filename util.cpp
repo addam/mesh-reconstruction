@@ -37,6 +37,16 @@ Mat dehomogenize2D(const Mat points) // expects points in rows, returns a new n 
 	return result;
 }
 
+Mat extractCameraCenter(const Mat camera)
+{
+	Mat projection(3, 4, CV_32FC1);
+	camera.rowRange(0,2).copyTo(projection.rowRange(0,2));
+	camera.row(3).copyTo(projection.row(2));
+	Mat K, R, T;
+	cv::decomposeProjectionMatrix(projection, K, R, T);
+	return T;
+}
+
 bool goodSample(const Mat image, const float x, const float y)
 // throw away points whose neighboring pixels cannot be directly interpolated
 {
@@ -50,11 +60,12 @@ bool goodSample(const Mat image, const float x, const float y)
 }
 
 int totalIterations;
-Mat triangulatePixel(float x, float y, const Mat measuredPoints, const Mat invVariances, const Mat mainCameraInv, const MatList cameras, float depth) {
+DensityPoint triangulatePixel(float x, float y, const Mat measuredPoints, const Mat invVariances, const Mat mainCameraInv, const MatList cameras, float depth) {
 	Mat k(cv::Vec4f(x, y, depth, 1)); // estimated point as seen by main camera (only the 3rd coordinate may change during optimization)
 	Mat p(2, cameras.size(), CV_32FC1), delta_p(2, cameras.size(), CV_32FC1); // estimated point, projected to each camera (in columns) and its derivative wrt. z
 	Mat projectionDerivatives(2, cameras.size(), CV_32FC1); // derivative of homogeneous x, y projected to each camera (in columns) wrt. z in main camera's space
 	Mat projectionW(cameras.size(), 4, CV_32FC1); // projection from main camera space to each camera's space (in rows); result of multiplication is just the w coordinate of each point
+	float pdf = 1.0; // in the last run, save probability density of the resulting point
 	#ifdef USE_COVAR_MATRICES
 	std::vector<Mat> icovars;
 	icovars.reserve(invVariances.rows);
@@ -71,7 +82,7 @@ Mat triangulatePixel(float x, float y, const Mat measuredPoints, const Mat invVa
 	projectionW = projectionW * mainCameraInv; // now the projection is complete
 	float last_delta_z = depth;
 	
-	for (int iterCount=0; iterCount < 5; iterCount++) {
+	for (int iterCount=0; ; iterCount++) {
 		{int i=0;	for (MatList::const_iterator camera=cameras.begin(); camera!=cameras.end(); camera++, i++) {
 			Mat estimatedPoint = *camera * mainCameraInv * k;
 			estimatedPoint /= estimatedPoint.at<float>(3);
@@ -94,8 +105,18 @@ Mat triangulatePixel(float x, float y, const Mat measuredPoints, const Mat invVa
 			#endif
 		}
 		double delta_z = -firstDz/secondDz, eps = 1e-7;
-		if (delta_z < eps && delta_z > -eps)
+		if (iterCount >= 5 || (delta_z < eps && delta_z > -eps)) {
+			double exponent = 0, product_ivar = 1;
+			#ifdef USE_COVAR_MATRICES
+			#else
+			for (int i=0; i<difference.cols; i++) {
+				exponent -= difference.col(i).dot(difference.col(i));
+				product_ivar *= ivar[i];
+			}
+			#endif
+			pdf = 0.159 * product_ivar * exp(0.5*exponent);
 			break;
+		}
 		// apply sanity constraints to delta_z (so that the point does not get too close to any of the cameras)
 		/*float reasonableStep = 0.5, worstStep = reasonableStep;
 		{int i=0;	for (MatList::const_iterator camera=cameras.begin(); camera!=cameras.end(); camera++, i++) {
@@ -120,15 +141,17 @@ Mat triangulatePixel(float x, float y, const Mat measuredPoints, const Mat invVa
 		last_delta_z = delta_z;
 		//DEBUG totalIterations ++;
 	}
-	return mainCameraInv * k;
+	return DensityPoint(mainCameraInv*k, pdf);
 }
 
 Mat triangulatePixels(const MatList flows, const Mat mainCamera, const MatList cameras, const Mat depth)
 //FIXME: needs to have access to more details about the camera: to distortion coefficients and principal point
 {
-	Mat points(0, 4, CV_32FC1);
+	Mat points(depth.rows*depth.cols, 4+3, CV_32FC1); // point \in P^3, normal (scaled by probability) \in R^3
+	int pixelId=0;
 	Mat mainCameraInv = mainCamera.inv();
 	Mat gradient = imageGradient(depth);
+	float maxDensity = 0; // the highest probability density encountered; all points will be normalized to this (TODO: wrong idea.)
 	//DEBUG totalIterations = 0;
 	for (int row=0; row < depth.rows; row++) {
 		const float *depthRow = depth.ptr<float>(row); // you'll never get me down to Depth Row! --JP
@@ -147,7 +170,8 @@ Mat triangulatePixels(const MatList flows, const Mat mainCamera, const MatList c
 				#endif
 				{int i=0;	for (MatList::const_iterator camera=cameras.begin(), flow=flows.begin(); camera!=cameras.end(); camera++, flow++, i++) {
 					cv::Scalar_<float> fl = flow->at< cv::Scalar_<float> > (row, col);
-					float flx = fl[0], fly = fl[1], variance = fl[2]*fl[2];
+					float flx = fl[0], fly = fl[1],
+					      variance = fl[2];
 					// try to sample from the projected position; if that is not meaningful, use original pixel's depth
 					float z = goodSample(depth, col+flx, row+fly) ? sampleImage<float>(depth, col + flx, row + fly) : depthRow[col];
 					Mat measuredPoint = *camera * mainCameraInv * Mat(cv::Vec4f(x + flx*scaleX, y + fly*scaleY, z, 1));
@@ -173,13 +197,18 @@ Mat triangulatePixels(const MatList flows, const Mat mainCamera, const MatList c
 					measuredPoint.rowRange(0,2).copyTo(measuredPoints.col(i));
 				}}
 				if (okay) {
-					Mat result = triangulatePixel(x, y, measuredPoints, invVariances, mainCameraInv, cameras, depthRow[col]);
-					result = result.t();
-					points.push_back(result);
+					DensityPoint result = triangulatePixel(x, y, measuredPoints, invVariances, mainCameraInv, cameras, depthRow[col]);
+					points.row(pixelId).colRange(0,4) = result.point.t();
+					points.row(pixelId).colRange(4,7) = Mat::eye(1,3,CV_32FC1)*result.density; //FIXME temporary: just save the scale somehow
+					if (result.density > maxDensity)
+						maxDensity = result.density;
+					pixelId ++;
 				}
 			}
 		}
 	}
+	points.resize(pixelId);
+	points.colRange(4,7) /= maxDensity;
 	//DEBUG printf(" Triangulated %i points using %i iterations in total, %g per point\n", points.rows, totalIterations, (float)totalIterations/points.rows);
 	return points;
 }
@@ -188,13 +217,7 @@ Mat averageNormals(const Mat points, MatList cameras)
 {
 	Mat cameraCenters(cameras.size(), 3, CV_32FC1);
 	{int i=0; for (MatList::const_iterator camera=cameras.begin(); camera!=cameras.end(); camera++, i++) {
-		Mat projection(3, 4, CV_32FC1);
-		camera->rowRange(0,2).copyTo(projection.rowRange(0,2));
-		camera->row(3).copyTo(projection.row(2));
-		Mat K, R, T;
-		cv::decomposeProjectionMatrix(projection, K, R, T);
-		T = T.t() / T.at<float>(3);
-		T.colRange(0,3).copyTo(cameraCenters.row(i));
+		extractCameraCenter(*camera).copyTo(cameraCenters.row(i));
 	}}
 	Mat normals(points.rows, 3, CV_32FC1);
 	for (int i=0; i<points.rows; i++) {
@@ -203,7 +226,7 @@ Mat averageNormals(const Mat points, MatList cameras)
 		for (int c=0; c<cameras.size(); c++) {
 			Mat direction = cameraCenters.row(c) - point;
 			float distanceSqr = direction.dot(direction);
-			normals.row(i) += direction / distanceSqr;
+			normals.row(i) += direction / distanceSqr; // one for normalization, second for inverse distance weighing
 		}
 	}
 	Mat normalsTmp = normals.reshape(3);

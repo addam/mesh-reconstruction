@@ -34,9 +34,10 @@ NormalCloud::Ptr convert(const Mat points, const Mat inormals)
 		pcl::PointNormal p;
 		const float* point = points.ptr<float>(i);
 		const float* normal = normals.ptr<float>(i);
+		float confidence = cv::norm(inormals.row(i));
 		for (char j=0; j<3; j++) {
 			p.data[j] = point[j] / point[3];
-			p.normal[j] = normal[j];
+			p.normal[j] = normal[j] * confidence;
 		}
 		cloud->push_back(p);
 	}
@@ -173,9 +174,10 @@ Mesh poissonSurface(const Mat points, const Mat normals, int degree)
 	NormalCloud::Ptr cloud(convert(points, normals));
 	
 	pcl::Poisson<pcl::PointNormal> poisson;
+	poisson.setConfidence(true);
+	poisson.setOutputPolygons(false);
 	poisson.setDegree(4);
 	poisson.setIsoDivide(degree);
-	poisson.setOutputPolygons(false);
 	poisson.setInputCloud (cloud);
 	
 	pcl::PolygonMesh mesh;
@@ -186,7 +188,7 @@ Mesh poissonSurface(const Mat points, const Mat normals, int degree)
 	convert(result, mesh);
 	
 	float bbox = boundingBoxSize(result.vertices);
-	float gridSize = bbox / (1<<(poisson.getDepth()));
+	float gridSize = bbox / (1<<(poisson.getDepth()-3));
 	printf("boundbox %g, isodivide %i, depth %i, scale %g, gridsize %g\n", bbox, poisson.getIsoDivide(), poisson.getDepth(), poisson.getScale(), gridSize);
 	filterFinest(result, 1.8*gridSize);
 	

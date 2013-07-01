@@ -7,7 +7,7 @@
 Mat calculateFlow(Mat prev, Mat next)
 {
 	double pyr_scale = 0.5, poly_sigma = 1.5;
-	int levels = 4, winsize = 20, iterations = 30, poly_n = 6, flags = cv::OPTFLOW_FARNEBACK_GAUSSIAN;
+	int levels = 4, winsize = 20, iterations = 30, poly_n = 5, flags = cv::OPTFLOW_FARNEBACK_GAUSSIAN;
 	Mat flow;
 	Mat prev_gray, next_gray;
 	cv::cvtColor(prev,prev_gray,CV_RGB2GRAY);
@@ -22,7 +22,8 @@ Mat calculateFlow(Mat prev, Mat next)
 	winsize = 20;
 	//	cv::calcOpticalFlowFarneback(prev_gray, next_gray, flow, pyr_scale, levels, winsize, iterations, poly_n, poly_sigma, flags);
 	Mat certanity = compare(prev, flowRemap(flow, next));
-	certanity = 1 - (1/(certanity + 1));
+	
+	//certanity = 1 - (1/(certanity + 1));
 	Mat mixInput[] = {flow, certanity};
 	Mat mixed(flow.rows, flow.cols, CV_32FC4); // opencv does weird things if channel count is not 4...
 	int fromTo[] = {0,0, 1,1, 2,2, -1,3};

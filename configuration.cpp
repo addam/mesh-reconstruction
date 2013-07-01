@@ -11,10 +11,12 @@ Configuration::Configuration(int argc, char** argv)
 	char *inFileName=NULL, *outFileName=NULL;
 	verbosity = 0;
 	doEstimateExposure = false;
+	iterationCount = 2;
 	while (1) {
 		int option_index = 0;
 		static struct option long_options[] = {
 			{"estimate-exposure", no_argument, 0,  'e' },
+			{"iterations", required_argument, 0, 'n' },
 			{"help",    no_argument,       0,  'h' },
 			{"input",   required_argument, 0,  'i' },
 			{"output",  required_argument, 0,  'o' },
@@ -22,13 +24,17 @@ Configuration::Configuration(int argc, char** argv)
 			{0,         0,                 0,  0 }
 		};
 		
-		char c = getopt_long(argc, argv, "ehi:o:v", long_options, &option_index);
+		char c = getopt_long(argc, argv, "en:hi:o:v", long_options, &option_index);
 		if (c == -1)
 			break;
 		
 		switch (c) {
 			case 'e':
 				doEstimateExposure = true;
+				break;
+			
+			case 'n':
+				iterationCount = atoi(optarg);
 				break;
 			
 			case 'i':
@@ -49,6 +55,7 @@ Configuration::Configuration(int argc, char** argv)
 				printf("Usage: recon [OPTIONS] [INPUT_FILE]\n");
 				printf("Reconstructs dense geometry from given YAML scene calibration and video\n\n");
 				printf("  -e, --estimate-exposure   try to normalize exposure over time\n");
+				printf("  -n, --iterations          maximal iteration count of surface reconstruction\n");
 				printf("  -i, --input               input YAML file name (usually exported from Blender)\n");
 				printf("  -o, --output              output Wavefront OBJ file name (.obj)\n");
 				printf("  -v, --verbose             print out messages during computation\n");
