@@ -13,7 +13,7 @@ Heuristic::Heuristic(Configuration *iconfig)
 bool Heuristic::notHappy(const Mat points)
 {
 	iteration ++;
-	return (iteration <= 2);
+	return (iteration <= config->iterationCount);
 }
 
 const inline float pow2(float x)
@@ -165,25 +165,31 @@ const Mat faceCamera(const Mesh mesh, int faceIdx, float far, float focal)
 	a = a.colRange(0,3) / a.at<float>(3);
 	b = b.colRange(0,3) / b.at<float>(3);
 	c = c.colRange(0,3) / c.at<float>(3);
-	Mat normal((b-a).cross(c-b)),
-	    center((a+b+c)/3);
+	Mat normal((b-a).cross(c-b));
 	float normalLength = cv::norm(normal);
 	normal /= normalLength;
+
+	// get a uniformly random camera center across the triangle
+	float u1 = cv::randu<float>(), u2 = cv::randu<float>();
+	if (u1 + u2 > 1) {
+		u1 = 1-u1;
+		u2 = 1-u2;
+	}
+	Mat center = a*u1 + b*u2 + c*(1-u1-u2);
 
 	Mat RT;
 	// ready, steady...
 	float *n = normal.ptr<float>(0),
 	      *ce = center.ptr<float>(0);
 	float x = n[0], y = n[1], z = n[2];
-	float xys = x*x + y*y, xy = sqrt(xys),
-	      dot = center.dot(normal);
+	float xys = x*x + y*y, xy = sqrt(xys);
 	// ...go!
 	if (xy > 0) {
 		RT = Mat(cv::Matx44f(
-			x*z,  y*z,  -xys, ce[2]*xys - z*dot,
-			-y,   x,    0,    y*ce[1]-x*ce[0],
-			x*xy, y*xy, z*xy, -xy*dot,
-			0,    0,    0,    xy));
+			z*x/xy, z*y/xy,  xy, -z*(ce[0]*x + ce[1]*y)/xy - ce[2]*xy,
+			-y/xy,    x/xy,    0,  (ce[0]*y-ce[1]*x)/xy,
+			-x,        -y,       z, ce[0]*x + ce[1]*y - ce[2]*z,
+			0,        0,       0,  1));
 	} else { // no need for rotation
 		float s = (z > 0) ? 1 : -1;
 		RT = Mat(cv::Matx44f(
@@ -199,6 +205,7 @@ const Mat faceCamera(const Mesh mesh, int faceIdx, float far, float focal)
 		0, focal, 0, 0,
 		0, 0, (near+far)/(far-near), 2*near*far/(near-far),
 		0, 0, 1, 0));
+
 	return K*RT;
 }
 
@@ -242,9 +249,7 @@ LabelledCameras filterCameras(Mat viewer, Mat depth, const std::vector<Mat> came
 {
 	LabelledCameras filtered;
 	{int i=0; for (std::vector<Mat>::const_iterator camera=cameras.begin(); camera!=cameras.end(); camera++, i++) {
-		Mat imageOfCameraCenter = Mat(cv::Matx41f(0,0,-1,0)); // ale to přece není pravda.
-		Mat camPos = camera->inv()*imageOfCameraCenter;
-		Mat cameraFromViewer = viewer * camPos;
+		Mat cameraFromViewer = viewer * extractCameraCenter(*camera);
 		float *cfv = cameraFromViewer.ptr<float>(0);
 		cameraFromViewer /= cfv[3];
 		cfv = cameraFromViewer.ptr<float>(0);
@@ -261,8 +266,7 @@ LabelledCameras filterCameras(Mat viewer, Mat depth, const std::vector<Mat> came
 			continue;
 		}
 		
-		Mat viewerPos = viewer.inv()*imageOfCameraCenter;
-		Mat viewerFromCamera = *camera * viewerPos;
+		Mat viewerFromCamera = *camera * extractCameraCenter(viewer);
 		float *vfc = viewerFromCamera.ptr<float>(0);
 		viewerFromCamera /= vfc[3];
 		vfc = viewerFromCamera.ptr<float>(0);
@@ -295,13 +299,13 @@ const CameraLabel chooseMain(const Mat viewer, const std::vector<numberedVector>
 		CameraLabel label = it->first;
 		float weight = label.weightToViewer * label.weightFromViewer;
 		if (myFind(chosenCameras, label.index) >= 0)
-			weight += 50;
+			weight *= 50;
 		weightSum[i+1] = weightSum[i] + weight;
 	}}
 	//printf("average weight: %g\n", weightSum.back() / filteredCameras.size());
 	float choice = cv::randu<float>() * weightSum.back();
 	int index = bisect(weightSum, choice);
-	//printf("  I shot at %g from %g and thus decided for main camera %i (at position %i)\n", choice, weightSum.back(), filteredCameras[index].first.index, index);
+	printf("  I shot at %g from %g and thus decided for main camera %i (at position %i)\n", choice, weightSum.back(), filteredCameras[index].first.index, index);
 	return filteredCameras[index].first;
 }
 
@@ -318,7 +322,7 @@ const CameraLabel chooseSide(const Mat viewer, const std::vector<int> chosenSide
 			continue;
 		float weight = label.weightToViewer * sqrt(1-label.weightFromViewer*label.weightFromViewer);
 		if (myFind(chosenSideCameras, label.index) >= 0)
-			weight += 5;
+			weight *= 5;
 		weightSum[i+1] = weightSum[i] + weight;
 		labels.push_back(it->first);
 		i++;
@@ -326,7 +330,7 @@ const CameraLabel chooseSide(const Mat viewer, const std::vector<int> chosenSide
 	float choice = cv::randu<float>() * weightSum.back();
 	int index = bisect(weightSum, choice);
 	assert(index >= 0 && index < i);
-	//printf("  I shot at %g from %g and thus decided for side camera %i (at position %i of %i)\n", choice, weightSum.back(), labels[index].index, index, i);
+	printf("  I shot at %g from %g and thus decided for side camera %i (at position %i of %i)\n", choice, weightSum.back(), labels[index].index, index, i);
 	return labels[index];
 }
 
@@ -359,7 +363,7 @@ void Heuristic::chooseCameras(const Mesh mesh, const std::vector<Mat> cameras)
 			int chosenIdx = bisect(areaSum, choice);
 			//printf(" Projecting from face %i\n", chosenIdx);
 			float far = 10; //FIXME: nastavit na nejvzdálenější kameru
-			float focal = 0.25; //TODO: zmenšovat, pokud je kamer málo
+			float focal = 0.5; //TODO: zmenšovat, pokud je kamer málo
 			Mat viewer = faceCamera(mesh, chosenIdx, far, focal);
 			Mat depth = render->depth(viewer);
 			LabelledCameras filteredCameras = filterCameras(viewer, depth, cameras);
@@ -377,11 +381,13 @@ void Heuristic::chooseCameras(const Mesh mesh, const std::vector<Mat> cameras)
 				if (myFind(chosenCameras[positionMain].second, sideCamera.index) < 0) {
 					chosenCameras[positionMain].second.push_back(sideCamera.index);
 				}
-				sideCamera = chooseSide(viewer, chosenCameras[positionMain].second, mainCamera, filteredCameras);
+				/*sideCamera = chooseSide(viewer, chosenCameras[positionMain].second, mainCamera, filteredCameras);
 				//printf("  Chosen side camera %i\n", sideCamera.index);
 				if (myFind(chosenCameras[positionMain].second, sideCamera.index) < 0) {
 					chosenCameras[positionMain].second.push_back(sideCamera.index);
-				}
+				}*/
+			} else {
+				printf(" Missed.\n");
 			}
 		}
 		if (shotCount >= 200) {
