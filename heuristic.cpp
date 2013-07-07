@@ -1,8 +1,10 @@
 #include <opencv2/flann/flann.hpp>
 #include "recon.hpp"
+#include <map>
 
 typedef cvflann::L2_Simple<float> Distance;
 typedef std::pair<int, float> Neighbor;
+const unsigned C = USHRT_MAX;
 
 Heuristic::Heuristic(Configuration *iconfig)
 {
@@ -243,17 +245,26 @@ typedef struct{
 	int index;
 	float weightFromViewer, weightToViewer, distance;
 } CameraLabel;
+
+const CameraLabel dummyLabel = {-1, 0, 0, 0};
+
 typedef std::vector< std::pair<CameraLabel, Mat> > LabelledCameras;
 
 LabelledCameras filterCameras(Mat viewer, Mat depth, const std::vector<Mat> cameras)
 {
 	LabelledCameras filtered;
 	{int i=0; for (std::vector<Mat>::const_iterator camera=cameras.begin(); camera!=cameras.end(); camera++, i++) {
-		Mat cameraFromViewer = viewer * extractCameraCenter(*camera);
+		CameraLabel label;
+		label.index = i;
+		Mat cameraCenter = extractCameraCenter(*camera);
+		Mat cameraFromViewer = viewer * cameraCenter;
 		float *cfv = cameraFromViewer.ptr<float>(0);
+		label.distance = cfv[3] / cameraCenter.at<float>(3);
+		if (label.distance < 0)
+			continue;
 		cameraFromViewer /= cfv[3];
 		cfv = cameraFromViewer.ptr<float>(0);
-		if (cfv[0] < -1 || cfv[0] > 1 || cfv[1] < -1 || cfv[1] > 1 || cfv[2] < -1) { //DEBUG: WTF?
+		if (cfv[0] < -1 || cfv[0] > 1 || cfv[1] < -1 || cfv[1] > 1 || cfv[2] < -1) {
 			//printf("  Failed test from viewer: %g, %g, %g\n", cfv[0], cfv[1], cfv[2]);
 			continue;
 		}
@@ -270,48 +281,42 @@ LabelledCameras filterCameras(Mat viewer, Mat depth, const std::vector<Mat> came
 		float *vfc = viewerFromCamera.ptr<float>(0);
 		viewerFromCamera /= vfc[3];
 		vfc = viewerFromCamera.ptr<float>(0);
-		if (vfc[0] < -1 || vfc[0] > 1 || vfc[1] < -1 || vfc[1] > 1 || vfc[2] < -1) { //DEBUG: WTF?
+		if (vfc[0] < -1 || vfc[0] > 1 || vfc[1] < -1) {
 			//printf("  Failed test from camera: %g, %g, %g\n", vfc[0], vfc[1], vfc[2]);
 			continue;
 		}
 		
-		// passed all tests
-		CameraLabel label;
-		label.index = i;
-		label.weightFromViewer = 1 - (cfv[0]*cfv[0] + cfv[1]*cfv[1]);
-		if (label.weightFromViewer < 0)
-			continue;
-		label.weightToViewer = 1 - (vfc[0]*vfc[0] + vfc[1]*vfc[1]);
-		if (label.weightToViewer < 0)
-			continue;
-		label.distance = cfv[2]; //FIXME
+		label.weightFromViewer = 1 / (1 + (cfv[0]*cfv[0] + cfv[1]*cfv[1]));
+		label.weightToViewer = 1 / (1 + (vfc[0]*vfc[0] + vfc[1]*vfc[1]));
 		filtered.push_back(std::pair<CameraLabel, Mat>(label, *camera));
 	}}
 	//printf(" %i cameras passed visibility tests\n", filtered.size());
 	return filtered;
 }
 
-const CameraLabel chooseMain(const Mat viewer, const std::vector<numberedVector> chosenCameras, LabelledCameras filteredCameras)
+const CameraLabel chooseMain(const Mat viewer, std::map<unsigned, float> weights, float threshold, LabelledCameras filteredCameras)
 {
 	assert (filteredCameras.size() > 0);
 	std::vector<float> weightSum(filteredCameras.size()+1, 0.);
 	{int i=0; for (LabelledCameras::const_iterator it = filteredCameras.begin(); it != filteredCameras.end(); it++, i++) {
 		CameraLabel label = it->first;
-		float weight = label.weightToViewer * label.weightFromViewer;
-		if (myFind(chosenCameras, label.index) >= 0)
-			weight *= 50;
+		float weight = sqrt(label.weightFromViewer)/pow2(label.distance); // label.weightToViewer * 
+		float wcoef = 0;
+		for(std::map<unsigned, float>::iterator it = weights.lower_bound(label.index * C); it != weights.lower_bound(label.index*C + C); it++) {
+			wcoef += (it->second > 1) ? it->second: 0;
+		}
+		weight += weight * wcoef * filteredCameras.size();
 		weightSum[i+1] = weightSum[i] + weight;
 	}}
 	//printf("average weight: %g\n", weightSum.back() / filteredCameras.size());
 	float choice = cv::randu<float>() * weightSum.back();
 	int index = bisect(weightSum, choice);
-	printf("  I shot at %g from %g and thus decided for main camera %i (at position %i)\n", choice, weightSum.back(), filteredCameras[index].first.index, index);
+	printf("  I shot at %g from %g and thus decided for main camera %i (at position %i), weight %g\n", choice, weightSum.back(), filteredCameras[index].first.index, index, weightSum[index+1] - weightSum[index]);
 	return filteredCameras[index].first;
 }
 
-const CameraLabel chooseSide(const Mat viewer, const std::vector<int> chosenSideCameras, CameraLabel mainCamera, LabelledCameras filteredCameras)
+const CameraLabel chooseSide(const Mat viewer, std::map<unsigned, float> weights, CameraLabel mainCamera, float threshold, LabelledCameras filteredCameras)
 {
-	// TODO: try to pick similar depth as main, but different point of view than other side cameras
 	assert (filteredCameras.size() > 1); // mainCamera is surely in filteredCameras and we cannot pick it
 	std::vector<float> weightSum(filteredCameras.size(), 0.);
 	std::vector<CameraLabel> labels;
@@ -320,9 +325,9 @@ const CameraLabel chooseSide(const Mat viewer, const std::vector<int> chosenSide
 		CameraLabel label = it->first;
 		if (label.index == mainCamera.index)
 			continue;
-		float weight = label.weightToViewer * sqrt(1-label.weightFromViewer*label.weightFromViewer);
-		if (myFind(chosenSideCameras, label.index) >= 0)
-			weight *= 5;
+		float weight = sqrt(label.weightFromViewer * (1-label.weightFromViewer)) / pow2(label.distance);
+		if (weights.count(mainCamera.index * C + label.index > 0))
+			weight *= 5; // TODO: try *= filteredCameras.size() instead
 		weightSum[i+1] = weightSum[i] + weight;
 		labels.push_back(it->first);
 		i++;
@@ -330,8 +335,15 @@ const CameraLabel chooseSide(const Mat viewer, const std::vector<int> chosenSide
 	float choice = cv::randu<float>() * weightSum.back();
 	int index = bisect(weightSum, choice);
 	assert(index >= 0 && index < i);
-	printf("  I shot at %g from %g and thus decided for side camera %i (at position %i of %i)\n", choice, weightSum.back(), labels[index].index, index, i);
-	return labels[index];
+	float addWeight = weightSum[index+1] - weightSum[index],
+	      curWeight = (weights[mainCamera.index * C + labels[index].index] += addWeight);
+	if (curWeight > threshold * weightSum.back()) {
+		printf("  I shot at %g from %g and thus decided for side camera %i (at position %i of %i), weight %g > %g PASSED\n", choice, weightSum.back(), labels[index].index, index, i, curWeight, threshold * weightSum.back());
+		return labels[index];
+	} else {
+		printf("  I shot at %g from %g and thus decided for side camera %i (at position %i of %i), weight %g < %g FAILED\n", choice, weightSum.back(), labels[index].index, index, i, curWeight, threshold * weightSum.back());
+		return dummyLabel;
+	}
 }
 
 void Heuristic::chooseCameras(const Mesh mesh, const std::vector<Mat> cameras)
@@ -345,54 +357,41 @@ void Heuristic::chooseCameras(const Mesh mesh, const std::vector<Mat> cameras)
 	float totalArea = areaSum.back(),
 	      average = totalArea / mesh.faces.rows;
 	
+	// TODO: guess from the sequence
+	float samplingResolution = 640*480/totalArea; // units: pixels per scene-space area
 	std::vector<bool> used(false, mesh.faces.rows);
-	float bullets = 1; // expected count of shots, including misses ~ (face count)/(bullets)
 	cv::RNG random = cv::theRNG();
 	Render *render = spawnRender(*this);
 	render->loadMesh(mesh);
 	std::vector<int> empty;
-	for (int shotCount = 0; shotCount < mesh.faces.rows; shotCount ++) {
-		float choice = cv::randu<float>() * (totalArea + average*bullets);
-		if (choice >= totalArea) {
-			// congratulations: you won the Russian roulette
-			if (chosenCameras.size() > 0)
-				break;
-			else
+	int shotCount = 200;
+	std::map<unsigned, float> weights;
+	int cn; // 2D array width for indexing the weights
+	for(cn = 1; cn < cameras.size(); cn <<= 1);
+	for (int i = 0; i < shotCount; i ++) {
+		float choice = cv::randu<float>() * totalArea;
+		int chosenIdx = bisect(areaSum, choice);
+		//printf(" Projecting from face %i\n", chosenIdx);
+		float far = 10; // FIXME: set to the farthest camera
+		float focal = 0.5; // TODO: decrease if filtered cameras are too few
+		Mat viewer = faceCamera(mesh, chosenIdx, far, focal);
+		Mat depth = render->depth(viewer);
+		LabelledCameras filteredCameras = filterCameras(viewer, depth, cameras);
+		if (filteredCameras.size() >= 2) {
+			CameraLabel mainCamera = chooseMain(viewer, weights, shotCount/samplingResolution, filteredCameras);
+			CameraLabel sideCamera = chooseSide(viewer, weights, mainCamera, shotCount/samplingResolution, filteredCameras);
+			if (sideCamera.index < 0) {
+				//printf("Missed (side).\n");
 				continue;
-		} else {
-			int chosenIdx = bisect(areaSum, choice);
-			//printf(" Projecting from face %i\n", chosenIdx);
-			float far = 10; //FIXME: nastavit na nejvzdálenější kameru
-			float focal = 0.5; //TODO: zmenšovat, pokud je kamer málo
-			Mat viewer = faceCamera(mesh, chosenIdx, far, focal);
-			Mat depth = render->depth(viewer);
-			LabelledCameras filteredCameras = filterCameras(viewer, depth, cameras);
-			if (filteredCameras.size() >= 2) {
-				CameraLabel mainCamera = chooseMain(viewer, chosenCameras, filteredCameras);
-				//printf(" Chosen main camera %i\n", mainCamera->index);
-				int positionMain = myFind(chosenCameras, mainCamera.index);
-				CameraLabel sideCamera;
-				if (positionMain == -1) {
-					positionMain = chosenCameras.size();
-					chosenCameras.push_back(numberedVector(mainCamera.index, std::vector<int>()));
-				}
-				sideCamera = chooseSide(viewer, chosenCameras[positionMain].second, mainCamera, filteredCameras);
-				//printf("  Chosen side camera %i\n", sideCamera.index);
-				if (myFind(chosenCameras[positionMain].second, sideCamera.index) < 0) {
-					chosenCameras[positionMain].second.push_back(sideCamera.index);
-				}
-				/*sideCamera = chooseSide(viewer, chosenCameras[positionMain].second, mainCamera, filteredCameras);
-				//printf("  Chosen side camera %i\n", sideCamera.index);
-				if (myFind(chosenCameras[positionMain].second, sideCamera.index) < 0) {
-					chosenCameras[positionMain].second.push_back(sideCamera.index);
-				}*/
-			} else {
-				printf(" Missed.\n");
 			}
-		}
-		if (shotCount >= 200) {
-			printf("Fail. Total area: %g, average: %g, sampling range: %g. Managed to get %lu main cameras.\n", totalArea, average, totalArea + average*bullets, chosenCameras.size());
-			break;
+			int positionMain = myFind(chosenCameras, mainCamera.index);
+			if (positionMain == -1) {
+				chosenCameras.push_back(numberedVector(mainCamera.index, std::vector<int>(1, sideCamera.index)));
+			} else if (myFind(chosenCameras[positionMain].second, sideCamera.index) == -1) {
+				chosenCameras[positionMain].second.push_back(sideCamera.index);
+			}
+		} else {
+			printf(" Missed.\n");
 		}
 	}
 	std::sort(chosenCameras.begin(), chosenCameras.end());
