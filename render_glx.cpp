@@ -18,6 +18,9 @@
 	typedef cv::Mat Mat;
 	class Render {};
 	class Heuristic {};
+	typedef struct Mesh{
+		Mat vertices, faces;
+		Mesh(Mat v, Mat f):vertices(v), faces(f) {};} Mesh;
 #else
 	#include "recon.hpp"
 #endif
@@ -55,15 +58,19 @@ GLuint createTexture(const Mat image){
 	GLuint texture;
 	glGenTextures(1, &texture);
 	glBindTexture(GL_TEXTURE_2D, texture);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, flipped.cols, flipped.rows, 0, GL_RGB, GL_UNSIGNED_BYTE, flipped.data);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, flipped.cols, flipped.rows, 0, GL_BGR, GL_UNSIGNED_BYTE, flipped.data);
 	
 	// nearest neighbor filtering
 	//glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 	//glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST); 
 
+	GLfloat anisotropy;
+	glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT, &anisotropy);
+	glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, anisotropy); 
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	//glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR); 
 	glGenerateMipmap(GL_TEXTURE_2D);
 
@@ -224,9 +231,39 @@ Mat RenderGLX::projected(const Mat camera, const Mat frame, const Mat projector)
 	glUniformMatrix4fv(mainMatrixID, 1, GL_TRUE, (float*)camera.data);
 	glUniformMatrix4fv(sideMatrixID, 1, GL_TRUE, (float*)projector.data);
 
+//BEGIN SHADOW MAP
+/*	 
+	// Poor filtering. Needed !
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	
+	GLuint shadowbuffer;
+	glGenBuffers(1, &shadowbuffer);
+	glBufferData(GL_PIXEL_PACK_BUFFER, imgw*imgh, 0, GL_STREAM_COPY);
+	glBindBuffer(GL_PIXEL_PACK_BUFFER, shadowbuffer);
+
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	glViewport(0,0,imgw, imgh);
+	glDrawArrays(GL_TRIANGLES, 0, vertex_count);
+	
+	glReadBuffer(GL_DEPTH_ATTACHMENT);
+	glReadPixels(0, 0, imgw, imgh, GL_DEPTH_COMPONENT, GL_FLOAT, 0);
+	glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+	
+	glBindBuffer(GL_PIXEL_UNPACK_BUFFER, shadowbuffer);
+	// The texture we're going to render to
+	GLuint renderedTexture;
+	glGenTextures(1, &renderedTexture);
+	// "Bind" the newly created texture : all future texture functions will modify this texture
+	glBindTexture(GL_TEXTURE_2D, renderedTexture);
+	// Give an empty image to OpenGL ( the last "0" ) -- no, it should be read from the buffer currently bound
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, imgw, imgh, 0, GL_RED, GL_FLOAT, 0);
+	glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+	glBindTexture(GL_TEXTURE_2D, 0);
+*/
+//END SHADOW MAP
+
 	glActiveTexture(GL_TEXTURE0);
-	/*Mat flippedTex;
-	cv::flip(frame, flippedTex, 0);*/
 	GLuint texture = createTexture(frame);
 	glBindTexture(GL_TEXTURE_2D, texture);
 	// Set our "myTextureSampler" sampler to user Texture Unit 0
@@ -244,8 +281,9 @@ Mat RenderGLX::projected(const Mat camera, const Mat frame, const Mat projector)
 
 	Mat result(imgh, imgw, CV_8UC3);
 	glReadBuffer(GL_COLOR_ATTACHMENT0);
-	glReadPixels(0, 0, imgw, imgh, GL_RGB, GL_UNSIGNED_BYTE, result.data);
+	glReadPixels(0, 0, imgw, imgh, GL_BGR, GL_UNSIGNED_BYTE, result.data);
 	glDeleteTextures(1, &texture);
+//	glDeleteBuffers(1, &shadowbuffer); //DELETE SHADOW MAP
 	cv::flip(result, result, 0);
 	return result;
 }	
@@ -278,34 +316,24 @@ Mat RenderGLX::depth(const Mat camera) {
 #ifdef TEST_BUILD
 int main(int argc, char ** argv)
 {
-	Mat MVP(cv::Matx44f(
-	-2.16, 0.0, 0.0, 0.0,
-	0.0, -2.89, 0.0, 0.0,
-	0.0, 0.0, 4.02, 101.,
-	0.0, 0.0, -1.0, 0.0));
-	 /*1.086396,  0.000000, -1.448528, 0.000000,
-	-0.993682,  2.070171, -0.745262, 0.000000,
-	-0.687368, -0.515526, -0.515526, 5.642426,
-	-0.685994, -0.514496, -0.514496, 5.830953));*/
-	Mat sideMVP(cv::Matx44f(
-	 0.940846, 0.543198, -1.448528, 0.000000,
-	 -1.895640, 1.295979, -0.745262, 0.000000,
-	 -0.337515, -0.790143, -0.515526, 5.642426,
-	 -0.336840, -0.788564, -0.514496, 5.830953));
 	RenderGLX r = RenderGLX(640, 480, (char*)":0");
 
-	Mat points = (cv::Mat_<float>(17, 4) << -0.2664756178855896, -1.791168451309204, -21.19037437438965, 1.0, 5.731060981750488, 3.035867691040039, -23.173986434936523, 1.0, -4.842716693878174, 1.0105935335159302, -21.295154571533203, 1.0, -4.621604919433594, -8.304047584533691, -24.590070724487305, 1.0, 1.674145221710205, -2.720536947250366, -22.068742752075195, 1.0, -0.3098718523979187, 3.13543438911438, -24.555044174194336, 1.0, -4.936746597290039, 7.746241092681885, -27.882299423217773, 1.0, -8.664413452148438, -3.6351583003997803, -23.135316848754883, 1.0, 10.364237785339355, -6.200657367706299, -26.767850875854492, 1.0, 2.185030221939087, -7.903203010559082, -25.241413116455078, 1.0, 3.0006182193756104, 4.61848258972168, -22.982234954833984, 1.0, 9.871418952941895, 0.6571488380432129, -30.438135147094727, 1.0, 5.872250080108643, 5.336030006408691, -33.424095153808594, 1.0, -7.577719211578369, -5.29838228225708, -20.12104034423828, 1.0, 1.0, 0.0, 0.0, 1, 0, 1, 0, 1, 0, 0, 0, 1);
-	Mat indices = (cv::Mat_<int32_t>(25,3) << 13, 7, 3, 0, 10, 1, 0, 2, 13, 13, 7, 2, 1, 12, 11, 2, 7, 5, 5, 7, 3, 0, 2, 10, 5, 6, 12, 1, 4, 8, 1, 11, 8, 0, 5, 4, 0, 1, 4, 4, 8, 9, 0, 3, 13, 11, 9, 8, 11, 9, 4, 2, 5, 10, 10, 6, 5, 10, 6, 12, 1, 10, 12, 0, 5, 3, 11, 5, 12, 4, 5, 11, 14, 15, 16);
-	r.loadMesh(points, indices);
-	Mat tex = cv::imread("opengl/uvtemplate.bmp");
+Mat points = (cv::Mat_<float>(25.0, 4) << 0.5127, -3.9222, -29.4300, 1.0000, 0.6195, -0.2643, -27.4378, 1.0000, 4.5767, 0.2684, -28.6282, 1.0000, 4.4699, -3.3895, -30.6204, 1.0000, 1.8125, -5.8448, -25.9695, 1.0000, 1.9193, -2.1869, -23.9774, 1.0000, 5.8765, -1.6541, -25.1678, 1.0000, -3.7263, 1.9956, -20.7352, 1.0000, -5.1135, -5.5956, -28.2388, 1.0000, -5.0067, -1.9377, -26.2467, 1.0000, -1.0495, -1.4050, -27.4371, 1.0000, -1.1563, -5.0629, -29.4292, 1.0000, -3.8137, -7.5182, -24.7784, 1.0000, 0.2503, -3.3276, -23.9766, 1.0000, 0.1435, -6.9855, -25.9688, 1.0000, -4.5209, -0.3826, -22.9609, 1.0000, -4.4455, 2.1991, -21.5549, 1.0000, -1.6526, 2.5750, -22.3950, 1.0000, -1.7281, -0.0066, -23.8010, 1.0000, -3.6036, -1.7395, -20.5186, 1.0000, -3.5282, 0.8422, -19.1126, 1.0000, -0.7353, 1.2181, -19.9528, 1.0000, -0.8107, -1.3635, -21.3588, 1.0000, -3.3029, 1.3693, -19.6080, 1.0000, -2.0139, 1.5429, -19.9957, 1.0000);
+Mat indices = (cv::Mat_<int32_t>(27.0, 3) << 4, 5, 1, 5, 6, 1, 0, 1, 2, 13, 14, 11, 14, 12, 8, 8, 9, 10, 19, 20, 16, 20, 21, 16, 21, 22, 17, 22, 19, 18, 15, 16, 17, 22, 21, 20, 0, 4, 1, 21, 17, 16, 13, 10, 9, 3, 0, 2, 8, 12, 9, 22, 18, 17, 10, 13, 11, 11, 14, 8, 11, 8, 10, 15, 19, 16, 23, 24, 7, 6, 2, 1, 18, 15, 17, 19, 22, 20, 19, 15, 18);
+Mat MVP(cv::Matx44f(-1.195982575416565, 1.350219488143921, 1.237614393234253, 30.956573486328125, -0.1888779103755951, -2.055802583694458, 2.06032657623291, 47.59274673461914, -0.8364689946174622, -0.35027408599853516, -0.4261872172355652, 7.458727836608887, -0.834797739982605, -0.3495742380619049, -0.42533570528030396, 7.643625259399414));
+Mat sideMVP(cv::Matx44f(-1.831691861152649, -1.1502554416656494, -0.3270684480667114, -11.764444351196289, 1.391772985458374, -2.4397428035736084, 0.7858548760414124, 19.515047073364258, 0.267280250787735, -0.1545732319355011, -0.9532451629638672, -12.715036392211914, 0.2667462229728699, -0.1542643904685974, -0.9513405561447144, -12.489831924438477));
+MVP = sideMVP;
+
+	r.loadMesh(Mesh(points, indices));
+	Mat tex = cv::imread("opengl/grid.png");
 	Mat frame = r.projected(MVP, tex, sideMVP);
-			for (int i=0; i<points.rows; i++) {
-				Mat point = points.row(i).t();
-				point = MVP * point;
-				float pointW = point.at<float>(3, 0), pointX = point.at<float>(0, 0)/pointW, pointY = point.at<float>(1, 0)/pointW, pointZ = point.at<float>(2, 0)/pointW;
-				cv::Scalar color = (pointZ <= 1 && pointZ >= -1) ? cv::Scalar(128*(1-pointZ), 128*(pointZ+1), 0) : cv::Scalar(0, 0, 255);
-				cv::circle(frame, cv::Point(frame.cols*(0.5 + pointX*0.5), frame.rows * (0.5 - pointY*0.5)), 3, color, -1, 8);
-			}
+	for (int i=0; i<points.rows; i++) {
+		Mat point = points.row(i).t();
+		point = MVP * point;
+		float pointW = point.at<float>(3, 0), pointX = point.at<float>(0, 0)/pointW, pointY = point.at<float>(1, 0)/pointW, pointZ = point.at<float>(2, 0)/pointW;
+		cv::Scalar color = (pointZ <= 1 && pointZ >= -1) ? cv::Scalar(128*(1-pointZ), 128*(pointZ+1), 0) : cv::Scalar(0, 0, 255);
+		cv::circle(frame, cv::Point(frame.cols*(0.5 + pointX*0.5), frame.rows * (0.5 - pointY*0.5)), 3, color, -1, 8);
+	}
 	cv::imwrite("projected.png", frame);
 	Mat depth = r.depth(MVP);
 	double min, max;
