@@ -171,7 +171,7 @@ RenderGLX::RenderGLX(int width, int height, char *displayName)
 	
 	glewInit();
 
-	glClearColor(0.5f, 0.5f, 0.5f, 0.0f);
+	glClearColor(0,0,0,0);
 	glEnable(GL_DEPTH_TEST);
 	glDepthFunc(GL_LESS); 
 
@@ -300,8 +300,9 @@ Mat RenderGLX::projected(const Mat camera, const Mat frame, const Mat projector)
 	glDisableVertexAttribArray(1);
 
 	Mat result(imgh, imgw, CV_8UC3);
-	//glReadBuffer(GL_COLOR_ATTACHMENT0);
+	glReadBuffer(GL_FRONT);
 	glReadPixels(0, 0, imgw, imgh, GL_BGR, GL_UNSIGNED_BYTE, result.data);
+	
 	glDeleteTextures(1, &texture);
 	glDeleteTextures(1, &renderedTexture);
 /*

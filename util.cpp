@@ -262,9 +262,20 @@ Mat compare(const Mat prev, const Mat next)
 
 void mixBackground(Mat image, const Mat background, const Mat depth)
 {
-	Mat mask;
-	cv::compare(depth, backgroundDepth, mask, cv::CMP_EQ);
-	background.copyTo(image, mask);
+	assert(image.channels() == 3);
+	assert(background.channels() == 3);
+	// I HATE YOU FOR THIS, OPENCV.
+	for (int i=0; i<image.rows; i++) {
+		const uchar *srcrow = background.ptr<const uchar>(i),
+		            *depthrow = depth.ptr<const uchar>(i);
+		uchar *dstrow = image.ptr<uchar>(i);
+		for (int j=0; j<image.cols; j++) {
+			// black (0,0,0) in the image denotes invalid pixels; valid black would be (0,0,1)
+			if (depthrow[j] == backgroundDepth || !(dstrow[3*j]|dstrow[3*j+1]|dstrow[3*j+2])) {
+				memcpy(dstrow+3*j, srcrow+3*j, 3);
+			}
+		}
+	}
 }
 
 Mat flowRemap(const Mat flow, const Mat image)

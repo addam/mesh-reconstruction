@@ -14,6 +14,6 @@ void main(){
 	bool visible = shadowDepth + 0.01 > screenCoord.z/screenCoord.w;
 	bool inframe = (screenCoord.x/screenCoord.w > -1 && screenCoord.x/screenCoord.w < 1 && screenCoord.y/screenCoord.w > -1 && screenCoord.y/screenCoord.w < 1);
 	bool normals = gl_FrontFacing;
-	color.rgb = (visible && inframe && normals) ? texture(textureSampler, (screenCoord.xy / (2*screenCoord.w)) - 0.5).rgb: vec3(0,0,0);
-	//color.a = (visible && inframe && normals) ? 1:0;
+	color.rgb = texture(textureSampler, (screenCoord.xy / (2*screenCoord.w)) - 0.5).rgb;
+	color.rgb = (visible && inframe && normals) ? vec3(color.rg, max(color.b, 1./256)) : vec3(0,0,0);
 }
