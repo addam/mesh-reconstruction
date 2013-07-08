@@ -39,7 +39,7 @@ class RenderGLX: public Render {
 		virtual Mat projected(const Mat camera, const Mat frame, const Mat projector);
 		virtual Mat depth(const Mat camera);		
 	protected:
-		GLuint programID, mainMatrixID, sideMatrixID, textureSamplerID, vertexbuffer, vertexArrayID, imgw, imgh;
+		GLuint programID, mainMatrixID, sideMatrixID, textureSamplerID, shadowSamplerID, vertexbuffer, vertexArrayID, imgw, imgh;
 		Display *display;
 		GLXContext context;
 		GLXPbuffer glxbuffer;
@@ -178,6 +178,7 @@ RenderGLX::RenderGLX(int width, int height, char *displayName)
 	programID = LoadShaders();
 	mainMatrixID = glGetUniformLocation(programID, "mainMVP");
 	sideMatrixID = glGetUniformLocation(programID, "sideMVP");
+	shadowSamplerID = glGetUniformLocation(programID, "shadowSampler");
 	textureSamplerID = glGetUniformLocation(programID, "textureSampler");
 
 	glGenVertexArrays(1, &vertexArrayID);
@@ -225,53 +226,72 @@ void RenderGLX::loadMesh(const Mesh mesh) {
 
 Mat RenderGLX::projected(const Mat camera, const Mat frame, const Mat projector)
 {
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	glUseProgram(programID);
 
-	glUniformMatrix4fv(mainMatrixID, 1, GL_TRUE, (float*)camera.data);
+	glUniformMatrix4fv(mainMatrixID, 1, GL_TRUE, (float*)projector.data);
 	glUniformMatrix4fv(sideMatrixID, 1, GL_TRUE, (float*)projector.data);
 
+	glEnableVertexAttribArray(0);
+	glBindBuffer(GL_ARRAY_BUFFER, vertexbuffer);
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, (void*)0);
+
 //BEGIN SHADOW MAP
-/*	 
-	// Poor filtering. Needed !
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+
+	glClear(GL_DEPTH_BUFFER_BIT);
+
+	glViewport(0, 0, imgw, imgh);
+	glDrawArrays(GL_TRIANGLES, 0, vertex_count);
 	
+	glDisableVertexAttribArray(0);
+	glDisableVertexAttribArray(1);
+
+	Mat shadow(imgh, imgw, CV_32FC1);
+	shadow += 3;
+	//glReadBuffer(GL_FRONT);
+	glReadPixels(0, 0, imgw, imgh, GL_DEPTH_COMPONENT, GL_FLOAT, shadow.data);
+
+/*
 	GLuint shadowbuffer;
 	glGenBuffers(1, &shadowbuffer);
 	glBufferData(GL_PIXEL_PACK_BUFFER, imgw*imgh, 0, GL_STREAM_COPY);
 	glBindBuffer(GL_PIXEL_PACK_BUFFER, shadowbuffer);
 
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-	glViewport(0,0,imgw, imgh);
-	glDrawArrays(GL_TRIANGLES, 0, vertex_count);
-	
 	glReadBuffer(GL_DEPTH_ATTACHMENT);
 	glReadPixels(0, 0, imgw, imgh, GL_DEPTH_COMPONENT, GL_FLOAT, 0);
 	glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
-	
 	glBindBuffer(GL_PIXEL_UNPACK_BUFFER, shadowbuffer);
-	// The texture we're going to render to
+*/
+
 	GLuint renderedTexture;
 	glGenTextures(1, &renderedTexture);
-	// "Bind" the newly created texture : all future texture functions will modify this texture
 	glBindTexture(GL_TEXTURE_2D, renderedTexture);
-	// Give an empty image to OpenGL ( the last "0" ) -- no, it should be read from the buffer currently bound
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, imgw, imgh, 0, GL_RED, GL_FLOAT, 0);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, imgw, imgh, 0, GL_DEPTH_COMPONENT, GL_FLOAT, shadow.data);
+/*
 	glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
-	glBindTexture(GL_TEXTURE_2D, 0);
 */
-//END SHADOW MAP
+	glBindTexture(GL_TEXTURE_2D, 0);
 
-	glActiveTexture(GL_TEXTURE0);
-	GLuint texture = createTexture(frame);
-	glBindTexture(GL_TEXTURE_2D, texture);
-	// Set our "myTextureSampler" sampler to user Texture Unit 0
-	glUniform1i(textureSamplerID, 0);
+//END SHADOW MAP
 
 	glEnableVertexAttribArray(0);
 	glBindBuffer(GL_ARRAY_BUFFER, vertexbuffer);
 	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, (void*)0);
+
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+	glUniformMatrix4fv(mainMatrixID, 1, GL_TRUE, (float*)camera.data);
+	GLuint texture = createTexture(frame);
+	glActiveTexture(GL_TEXTURE0);
+	glBindTexture(GL_TEXTURE_2D, texture);
+	glActiveTexture(GL_TEXTURE1);
+	glBindTexture(GL_TEXTURE_2D, renderedTexture);
+
+	glUniform1i(textureSamplerID, 0);
+	glUniform1i(shadowSamplerID, 1);
 
 	glViewport(0, 0, imgw, imgh);
 	glDrawArrays(GL_TRIANGLES, 0, vertex_count);
@@ -280,10 +300,13 @@ Mat RenderGLX::projected(const Mat camera, const Mat frame, const Mat projector)
 	glDisableVertexAttribArray(1);
 
 	Mat result(imgh, imgw, CV_8UC3);
-	glReadBuffer(GL_COLOR_ATTACHMENT0);
+	//glReadBuffer(GL_COLOR_ATTACHMENT0);
 	glReadPixels(0, 0, imgw, imgh, GL_BGR, GL_UNSIGNED_BYTE, result.data);
 	glDeleteTextures(1, &texture);
-//	glDeleteBuffers(1, &shadowbuffer); //DELETE SHADOW MAP
+	glDeleteTextures(1, &renderedTexture);
+/*
+	glDeleteBuffers(1, &shadowbuffer); //DELETE SHADOW MAP
+*/
 	cv::flip(result, result, 0);
 	return result;
 }	
@@ -320,9 +343,8 @@ int main(int argc, char ** argv)
 
 Mat points = (cv::Mat_<float>(25.0, 4) << 0.5127, -3.9222, -29.4300, 1.0000, 0.6195, -0.2643, -27.4378, 1.0000, 4.5767, 0.2684, -28.6282, 1.0000, 4.4699, -3.3895, -30.6204, 1.0000, 1.8125, -5.8448, -25.9695, 1.0000, 1.9193, -2.1869, -23.9774, 1.0000, 5.8765, -1.6541, -25.1678, 1.0000, -3.7263, 1.9956, -20.7352, 1.0000, -5.1135, -5.5956, -28.2388, 1.0000, -5.0067, -1.9377, -26.2467, 1.0000, -1.0495, -1.4050, -27.4371, 1.0000, -1.1563, -5.0629, -29.4292, 1.0000, -3.8137, -7.5182, -24.7784, 1.0000, 0.2503, -3.3276, -23.9766, 1.0000, 0.1435, -6.9855, -25.9688, 1.0000, -4.5209, -0.3826, -22.9609, 1.0000, -4.4455, 2.1991, -21.5549, 1.0000, -1.6526, 2.5750, -22.3950, 1.0000, -1.7281, -0.0066, -23.8010, 1.0000, -3.6036, -1.7395, -20.5186, 1.0000, -3.5282, 0.8422, -19.1126, 1.0000, -0.7353, 1.2181, -19.9528, 1.0000, -0.8107, -1.3635, -21.3588, 1.0000, -3.3029, 1.3693, -19.6080, 1.0000, -2.0139, 1.5429, -19.9957, 1.0000);
 Mat indices = (cv::Mat_<int32_t>(27.0, 3) << 4, 5, 1, 5, 6, 1, 0, 1, 2, 13, 14, 11, 14, 12, 8, 8, 9, 10, 19, 20, 16, 20, 21, 16, 21, 22, 17, 22, 19, 18, 15, 16, 17, 22, 21, 20, 0, 4, 1, 21, 17, 16, 13, 10, 9, 3, 0, 2, 8, 12, 9, 22, 18, 17, 10, 13, 11, 11, 14, 8, 11, 8, 10, 15, 19, 16, 23, 24, 7, 6, 2, 1, 18, 15, 17, 19, 22, 20, 19, 15, 18);
-Mat MVP(cv::Matx44f(-1.195982575416565, 1.350219488143921, 1.237614393234253, 30.956573486328125, -0.1888779103755951, -2.055802583694458, 2.06032657623291, 47.59274673461914, -0.8364689946174622, -0.35027408599853516, -0.4261872172355652, 7.458727836608887, -0.834797739982605, -0.3495742380619049, -0.42533570528030396, 7.643625259399414));
-Mat sideMVP(cv::Matx44f(-1.831691861152649, -1.1502554416656494, -0.3270684480667114, -11.764444351196289, 1.391772985458374, -2.4397428035736084, 0.7858548760414124, 19.515047073364258, 0.267280250787735, -0.1545732319355011, -0.9532451629638672, -12.715036392211914, 0.2667462229728699, -0.1542643904685974, -0.9513405561447144, -12.489831924438477));
-MVP = sideMVP;
+Mat MVP(cv::Matx44f(-1.195982575416565, 1.350219488143921, 1.237614393234253, 30.956573486328125, -0.1888779103755951, -2.055802583694458, 2.06032657623291, 47.59274673461914, -1.0203083753585815, -0.42725738883018494, -0.519854724407196, 2.6755423545837402, -0.834797739982605, -0.3495742380619049, -0.42533570528030396, 7.643625259399414));
+Mat sideMVP(cv::Matx44f(-1.831691861152649, -1.1502554416656494, -0.3270684480667114, -11.764444351196289, 1.391772985458374, -2.4397428035736084, 0.7858548760414124, 19.515047073364258, 0.3260231614112854, -0.188545361161232, -1.1627495288848877, -21.932016372680664, 0.2667462229728699, -0.1542643904685974, -0.9513405561447144, -12.489831924438477));
 
 	r.loadMesh(Mesh(points, indices));
 	Mat tex = cv::imread("opengl/grid.png");
