@@ -1,5 +1,6 @@
 #include "recon.hpp"
 #include <opencv2/highgui/highgui.hpp>
+#include "opencv2/imgproc/imgproc.hpp"
 
 #include <set>
 #include <getopt.h>
@@ -8,35 +9,34 @@ using namespace cv;
 
 Configuration::Configuration(int argc, char** argv)
 {
-	char *inFileName=NULL, *outFileName=NULL;
+	char *inFileName=NULL;
+	outFileName = (char*)"output.obj";
 	verbosity = 0;
 	doEstimateExposure = false;
+	
 	iterationCount = 2;
+	sceneResolution = 1;
+	scalingFactor = 1;
+	skipFrames = 1;
 	while (1) {
 		int option_index = 0;
 		static struct option long_options[] = {
-			{"estimate-exposure", no_argument, 0,  'e' },
-			{"iterations", required_argument, 0, 'n' },
-			{"help",    no_argument,       0,  'h' },
 			{"input",   required_argument, 0,  'i' },
 			{"output",  required_argument, 0,  'o' },
+			{"estimate-exposure", no_argument, 0,  'e' },
+			{"iterations", required_argument, 0, 'n' },
+			{"scale", required_argument, 0, 's' },
+			{"skip-frames", required_argument, 0, 'k' },
 			{"verbose", no_argument,       0,  'v' },
+			{"help",    no_argument,       0,  'h' },
 			{0,         0,                 0,  0 }
 		};
 		
-		char c = getopt_long(argc, argv, "en:hi:o:v", long_options, &option_index);
+		char c = getopt_long(argc, argv, "i:o:en:s:k:vh", long_options, &option_index);
 		if (c == -1)
 			break;
 		
 		switch (c) {
-			case 'e':
-				doEstimateExposure = true;
-				break;
-			
-			case 'n':
-				iterationCount = atoi(optarg);
-				break;
-			
 			case 'i':
 				inFileName = optarg;
 				break;
@@ -45,6 +45,22 @@ Configuration::Configuration(int argc, char** argv)
 				outFileName = optarg;
 				break;
 		
+			case 'e':
+				doEstimateExposure = true;
+				break;
+			
+			case 'n':
+				iterationCount = atoi(optarg);
+				break;
+			
+			case 's':
+				scalingFactor = atof(optarg);
+				break;
+			
+			case 'k':
+				skipFrames = atoi(optarg);
+				break;
+			
 			case 'v':
 				verbosity = 99;
 				break;
@@ -54,12 +70,14 @@ Configuration::Configuration(int argc, char** argv)
 			default:
 				printf("Usage: recon [OPTIONS] [INPUT_FILE]\n");
 				printf("Reconstructs dense geometry from given YAML scene calibration and video\n\n");
-				printf("  -e, --estimate-exposure   try to normalize exposure over time\n");
-				printf("  -n, --iterations          maximal iteration count of surface reconstruction\n");
-				printf("  -i, --input               input YAML file name (usually exported from Blender)\n");
-				printf("  -o, --output              output Wavefront OBJ file name (.obj)\n");
-				printf("  -v, --verbose             print out messages during computation\n");
+				printf("  -e, --estimate-exposure   try to normalize exposure over time (default: false)\n");
 				printf("  -h, --help                print this message and exit\n");
+				printf("  -i, --input               input configuration file name (.yaml, usually exported from Blender)\n");
+				printf("  -k, --skip-frames=i       use only every n-th frame of the sequence (default: 1)\n");
+				printf("  -n, --iterations=i        maximal iteration count of surface reconstruction (default: 2)\n");
+				printf("  -o, --output              output mesh file name (.obj)\n");
+				printf("  -s, --scale=f             downsample the input video by a given factor (default: 1.0)\n");
+				printf("  -v, --verbose             print out messages during computation\n");
 				exit(0);
 				break;
 		}
@@ -79,6 +97,11 @@ Configuration::Configuration(int argc, char** argv)
  	string clipPath;
 	nodeClip["width"] >> width;
 	nodeClip["height"] >> height;
+	if (scalingFactor != 1 && scalingFactor != 0) {
+		width /= scalingFactor;
+		height /= scalingFactor;
+	}
+	
 	nodeClip["path"] >> clipPath;
 	nodeClip["center-x"] >> centerX;
 	nodeClip["center-y"] >> centerY;
@@ -111,18 +134,20 @@ Configuration::Configuration(int argc, char** argv)
 	farVals.resize(frameCount);
 	int trackedFrameCount = -1;
 	for (FileNodeIterator cit = camera.begin(); cit != camera.end(); cit ++)	{
-		int frame;
-		(*cit)["frame"] >> frame;
-		assert (frame > 0 && frame <= frameCount);
-		frame -= 1;
-		(*cit)["near"] >> nearVals[frame];
-		(*cit)["far"] >> farVals[frame];
-		//undistort?
-		(*cit)["projection"] >> cameras[frame];
-		if (trackedFrameCount <= frame)
-			trackedFrameCount = frame+1;
+		int fi;
+		(*cit)["frame"] >> fi;
+		assert (fi > 0 && fi <= frameCount);
+		fi -= 1;
+		if (fi % skipFrames)
+			continue;
+		fi /= skipFrames;
+		(*cit)["near"] >> nearVals[fi];
+		(*cit)["far"] >> farVals[fi];
+		(*cit)["projection"] >> cameras[fi];
+		if (trackedFrameCount <= fi)
+			trackedFrameCount = fi+1;
 	}
-	for (int i=0; i<trackedFrameCount; i++) {
+	for (int i=0; i<trackedFrameCount/skipFrames; i++) {
 		assert (nearVals[i] > 0 && farVals[i] > 0);
 	}
 	cameras.resize(trackedFrameCount);
@@ -133,10 +158,14 @@ Configuration::Configuration(int argc, char** argv)
 	// read and cache the whole clip
 	for (int fi = 0; fi < trackedFrameCount; fi++) {
 		Mat frame;
-		//Mat *value = new Mat;
 		clip.read(frame);
-		//clip.read(frames[fi]);
-		frame.copyTo(frames[fi]);
+		// todo: undistort!
+		if (frame.rows != height || frame.cols != width)
+			cv::resize(frame, frames[fi], cv::Size(width, height), CV_INTER_AREA);
+		else
+			frame.copyTo(frames[fi]);
+		for(int skip=fi*skipFrames+1; skip < (fi+1)*skipFrames && skip < frameCount; skip++)
+			clip.read(frame);
 	}
 	
 	if (doEstimateExposure)

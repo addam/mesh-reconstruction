@@ -70,7 +70,7 @@ int main(int argc, char ** argv) {
 				mixBackground(projectedImage, originalImage, depth);
 				Mat flow = calculateFlow(originalImage, projectedImage);
 				//mixBackground(flow, Mat::zeros(flow.rows, flow.cols, CV_32FC4), depth);
-				flow += cv::Scalar(0,0,0,1);
+				flow += cv::Scalar(0,0,0,255);
 				if (config.verbosity >= 3) {
 					char filename[300];
 					//nahrubo ulož výsledek
@@ -102,12 +102,14 @@ int main(int argc, char ** argv) {
 	}
 	delete render;
 	//vysypej triangulované body jako obj
+	if (config.verbosity >= 3)
+		saveMesh(Mesh(points, Mat()), "purepoints.obj");
 	if (config.verbosity >= 1)
 		printf("Calculating final mesh...\n");
 	Mesh mesh = hint.tesselate(points, normals);
 	if (config.verbosity >= 2)
 		printf(" %i faces\n", mesh.faces.rows);
-	saveMesh(mesh, "triangulated.obj");
+	saveMesh(mesh, config.outFileName);
 	if (config.verbosity >= 2)
 		printf(" Saved, done.\n");
 	return 0;

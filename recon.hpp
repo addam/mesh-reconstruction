@@ -75,6 +75,11 @@ class Configuration {
 		const int frameCount();
 		int iterationCount;
 		char verbosity;
+		float sceneResolution; // a parameter to modify the density of the resulting mesh
+		float scalingFactor; // downsample each frame
+		unsigned skipFrames; // skip input frames, for testing
+		int width, height;
+		char *outFileName;
 	protected:
 		const Mat reprojectPoints(int frame);
 		void estimateExposure();
@@ -83,7 +88,6 @@ class Configuration {
 		std::vector <float> nearVals, farVals;
 		Mat bundles;
 		std::vector< std::set<int> > bundlesEnabled;
-		int width, height;
 		std::vector <float> lensDistortion;
 		float centerX, centerY;
 		bool doEstimateExposure;
@@ -113,6 +117,7 @@ class Heuristic {
 		int nextSide(int mainNumber); // return frame number for next side camera
 		void filterPoints(Mat& points, Mat& normals);
 		Mesh tesselate(const Mat points, const Mat normals);
+		cv::Size renderSize();
 		static const int sentinel = -1;
 	protected:
 		Configuration *config;

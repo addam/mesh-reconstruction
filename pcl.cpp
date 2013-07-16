@@ -189,8 +189,8 @@ Mesh poissonSurface(const Mat points, const Mat normals, int degree)
 	
 	float bbox = boundingBoxSize(result.vertices);
 	float gridSize = bbox / (1<<(poisson.getDepth()-3));
-	printf("boundbox %g, isodivide %i, depth %i, scale %g, gridsize %g\n", bbox, poisson.getIsoDivide(), poisson.getDepth(), poisson.getScale(), gridSize);
-	filterFinest(result, 1.8*gridSize);
+	//printf("boundbox %g, isodivide %i, depth %i, scale %g, gridsize %g\n", bbox, poisson.getIsoDivide(), poisson.getDepth(), poisson.getScale(), gridSize);
+	//filterFinest(result, 1.8*gridSize);
 	
 	return result;
 }
