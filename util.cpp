@@ -43,7 +43,7 @@ Mat extractCameraCenter(const Mat camera)
 	camera.rowRange(0,2).copyTo(projection.rowRange(0,2));
 	camera.row(3).copyTo(projection.row(2));
 	Mat K, R, T;
-	cv::decomposeProjectionMatrix(projection, K, R, T);
+	cv::decomposeProjectionMatrix(projection, K, R, T); // FIXME: try cv::noArray()
 	return T;
 }
 
@@ -147,10 +147,12 @@ DensityPoint triangulatePixel(float x, float y, const Mat measuredPoints, const 
 Mat triangulatePixels(const MatList flows, const Mat mainCamera, const MatList cameras, const Mat depth)
 //FIXME: needs to have access to more details about the camera: to distortion coefficients and principal point
 {
+	int width = depth.cols, height = depth.rows;
 	Mat points(depth.rows*depth.cols, 4+3, CV_32FC1); // point \in P^3, normal (scaled by probability) \in R^3
 	int pixelId=0;
 	Mat mainCameraInv = mainCamera.inv();
 	Mat gradient = imageGradient(depth);
+	Mat pixelIndices = -Mat::ones(height, width, CV_32SC1);
 	float maxDensity = 0; // the highest probability density encountered; all points will be normalized to this (TODO: wrong idea.)
 	//DEBUG totalIterations = 0;
 	for (int row=0; row < depth.rows; row++) {
@@ -199,7 +201,8 @@ Mat triangulatePixels(const MatList flows, const Mat mainCamera, const MatList c
 				if (okay) {
 					DensityPoint result = triangulatePixel(x, y, measuredPoints, invVariances, mainCameraInv, cameras, depthRow[col]);
 					points.row(pixelId).colRange(0,4) = result.point.t();
-					points.row(pixelId).colRange(4,7) = Mat::eye(1,3,CV_32FC1)*result.density; //FIXME temporary: just save the scale somehow
+					points.at<float>(pixelId, 4) = result.density; // just save the scale
+					pixelIndices.at<int32_t>(row, col) = pixelId;
 					if (result.density > maxDensity)
 						maxDensity = result.density;
 					pixelId ++;
@@ -208,7 +211,61 @@ Mat triangulatePixels(const MatList flows, const Mat mainCamera, const MatList c
 		}
 	}
 	points.resize(pixelId);
-	points.colRange(4,7) /= maxDensity;
+	const int radius = 2;
+	std::vector<Mat> cameraCenters(1, extractCameraCenter(mainCamera));
+	for (MatList::const_iterator camera=cameras.begin(); camera!=cameras.end(); camera++) {
+		cameraCenters.push_back(extractCameraCenter(*camera));
+	}
+	for (int i=0; i<cameraCenters.size(); i++) {
+		cameraCenters[i] = cameraCenters[i].rowRange(0, 3).t() / cameraCenters[i].at<float>(3);
+	}
+	Mat neighborhood(0, 3, CV_32FC1);
+	cv::PCA shape;
+	neighborhood.reserve(4*(radius+1)*(radius+1));
+	for (int row=0; row<height; row++) {
+		for (int col=0; col<width; col++) {
+			int pixelId = pixelIndices.at<int32_t>(row, col);
+			if (pixelId < 0)
+				continue;
+			float pdf = points.at<float>(pixelId, 4);
+			for (int ny=row-radius; ny<=row+radius; ny++) {
+				if (ny < 0 || ny >= height)
+					continue;
+				int32_t *idRow = pixelIndices.ptr<int32_t>(ny);
+				for (int nx=col-radius; nx<=col+radius; nx++) {
+					if (nx < 0 || nx >= width || idRow[nx] < 0)  // TODO: consider a circular neighborhood?
+						continue;
+					Mat point = points.row(idRow[nx]).colRange(0,3) / points.at<float>(idRow[nx], 3);
+					//printf("point: %ix%i, neighborhood: %ix%i\n", point.rows, point.cols, neighborhood.rows, neighborhood.cols);
+					neighborhood.push_back(point);
+					//printf("altered neighborhood\n");
+				}
+			}
+			Mat normal;
+			if (neighborhood.rows > 0) {
+				// slow but easy
+				shape(neighborhood, cv::noArray(), CV_PCA_DATA_AS_ROW);
+				normal = shape.eigenvectors.row(2);
+				float dot;
+				for (int i=0; i<cameraCenters.size(); i++) {
+					// weighting inversely to distance
+					dot += 1/normal.dot(cameraCenters[i] - points.row(pixelId).colRange(0,3) / points.at<float>(pixelId, 3));
+				}
+				if (dot < 0)
+					normal = -normal;
+				neighborhood.resize(0);
+			} else {
+				normal = Mat::zeros(1, 3, CV_32FC1);
+				for (int i=0; i<cameraCenters.size(); i++) {
+					Mat vec = cameraCenters[i] - points.row(pixelId).colRange(0,3);
+					normal += vec / vec.dot(vec);
+				}
+			}
+			points.row(pixelId).colRange(4,7) = normal * pdf / cv::norm(normal);
+			//FIXME: set correct length
+		}
+	}
+	//points.colRange(4,7) /= maxDensity;
 	//DEBUG printf(" Triangulated %i points using %i iterations in total, %g per point\n", points.rows, totalIterations, (float)totalIterations/points.rows);
 	return points;
 }

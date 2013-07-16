@@ -24,9 +24,8 @@ typedef pcl::PointCloud<pcl::PointNormal> NormalCloud;
 
 Mat estimatedNormals(Mat points);
 
-NormalCloud::Ptr convert(const Mat points, const Mat inormals)
+NormalCloud::Ptr convert(const Mat points, const Mat normals)
 {
-	Mat normals = estimatedNormals(points);
 	NormalCloud::Ptr cloud(new NormalCloud);
 	assert(points.rows == normals.rows);
 	cloud->reserve(points.rows);
@@ -34,10 +33,9 @@ NormalCloud::Ptr convert(const Mat points, const Mat inormals)
 		pcl::PointNormal p;
 		const float* point = points.ptr<float>(i);
 		const float* normal = normals.ptr<float>(i);
-		float confidence = cv::norm(inormals.row(i));
 		for (char j=0; j<3; j++) {
 			p.data[j] = point[j] / point[3];
-			p.normal[j] = normal[j] * confidence;
+			p.normal[j] = normal[j];
 		}
 		cloud->push_back(p);
 	}
@@ -174,7 +172,7 @@ Mesh poissonSurface(const Mat points, const Mat normals, int degree)
 	NormalCloud::Ptr cloud(convert(points, normals));
 	
 	pcl::Poisson<pcl::PointNormal> poisson;
-	poisson.setConfidence(true);
+	//poisson.setConfidence(true); // TODO: seems to do more harm than use
 	poisson.setOutputPolygons(false);
 	poisson.setDegree(4);
 	poisson.setIsoDivide(degree);

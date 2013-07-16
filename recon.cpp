@@ -1,28 +1,26 @@
 #include "recon.hpp"
-#include <stdio.h> //DEBUG
-#include <string.h> //DEBUG
+#include <stdio.h>
+#include <string.h>
 #include <opencv2/imgproc/imgproc.hpp>
+
+#define logprint(config, level, ...) {if ((config).verbosity >= (level)) printf(__VA_ARGS__);}
 
 int main(int argc, char ** argv) {
 	//načti všechny body
 	Configuration config = Configuration(argc, argv);
-	if (config.verbosity >= 2)
-		printf(" Loaded configuration and video clip\n");
+	logprint(config, 2, " Loaded configuration and video clip\n");
 	Heuristic hint(&config);
 	Render *render = spawnRender(hint);
 	Mat points = config.reconstructedPoints();
-	if (config.verbosity >= 2)
-		printf(" Loaded %i points\n", points.rows);
+	logprint(config, 2, " Loaded %i points\n", points.rows);
 	Mat normals(Mat::zeros(points.rows, 3, CV_32FC1));
 	
 	while (hint.notHappy(points)) {
 		//sestav z nich alphashape
 		float alpha;
-		if (config.verbosity >= 1)
-			printf("Tesselating...\n");
+		logprint(config, 1, "Tesselating...\n");
 		Mesh mesh = hint.tesselate(points, normals);
-		if (config.verbosity >= 2)
-			printf(" %i faces.\n", mesh.faces.rows);
+		logprint(config, 2, " %i faces.\n", mesh.faces.rows);
 		if (config.verbosity >= 3)
 			saveMesh(mesh, "recon_orig.obj");
 		render->loadMesh(mesh);
@@ -30,7 +28,7 @@ int main(int argc, char ** argv) {
 		hint.chooseCameras(mesh, config.allCameras());
 		if (config.verbosity >= 1) {
 			int fa = hint.beginMain();
-			if (fa == Heuristic::sentinel) {
+			if (fa == Heuristic::sentinel) { // FIXME check always
 				printf(" Heuristic has chosen no cameras, which is an error. However, we have got nothing more to do.\n");
 				exit(1);
 			}
@@ -43,8 +41,7 @@ int main(int argc, char ** argv) {
 			}
 		}
 
-		if (config.verbosity >= 1)
-			printf("Tracking the whole clip...\n");
+		logprint(config, 1, "Tracking the whole clip...\n");
 		for (int fa = hint.beginMain(); fa != Heuristic::sentinel; fa = hint.nextMain()) {
 			//vyber náhodné dva snímky
 			//promítni druhý do kamery prvního
@@ -93,24 +90,21 @@ int main(int argc, char ** argv) {
 			points.push_back(triangData.colRange(0,4));
 			normals.push_back(triangData.colRange(4,7));
 			cameras.push_back(config.camera(fa));
-			if (config.verbosity >= 2)
-				printf(" After processing main frame %i: %i points\n", fa, points.rows);
+			logprint(config, 2, " After processing main frame %i: %i points\n", fa, points.rows);
 		}
-		hint.filterPoints(points, normals);
-		if (config.verbosity >= 2)
-			printf(" %i filtered points\n", points.rows);
+		//if (config.verbosity >= 3)
+		//	saveMesh(Mesh(points, Mat()), "purepoints.obj");
+		//hint.filterPoints(points, normals);
+		logprint(config, 2, " %i filtered points\n", points.rows);
 	}
 	delete render;
 	//vysypej triangulované body jako obj
 	if (config.verbosity >= 3)
-		saveMesh(Mesh(points, Mat()), "purepoints.obj");
-	if (config.verbosity >= 1)
-		printf("Calculating final mesh...\n");
+		saveMesh(Mesh(points, Mat()), "filteredpoints.obj");
+	logprint(config, 1, "Calculating final mesh...\n");
 	Mesh mesh = hint.tesselate(points, normals);
-	if (config.verbosity >= 2)
-		printf(" %i faces\n", mesh.faces.rows);
+	logprint(config, 2, " %i faces\n", mesh.faces.rows);
 	saveMesh(mesh, config.outFileName);
-	if (config.verbosity >= 2)
-		printf(" Saved, done.\n");
+	logprint(config, 2, " Saved, done.\n");
 	return 0;
 }
