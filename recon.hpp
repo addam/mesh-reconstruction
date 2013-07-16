@@ -47,7 +47,6 @@ Mat calculateFlow(const Mat prev, const Mat next);
 // util.cpp
 Mat extractCameraCenter(const Mat camera);
 Mat triangulatePixels(const MatList flows, const Mat mainCamera, const MatList cameras, const Mat depth); //mělo by to jako poslední kanál zaznamenávat chybovou míru, aspoň nějak urvat
-Mat averageNormals(const Mat points, MatList cameras);
 Mat compare(const Mat prev, const Mat next);
 Mat dehomogenize(Mat points);
 Mat dehomogenize2D(const Mat points);
