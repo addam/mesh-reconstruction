@@ -5,7 +5,6 @@
 
 //sets the variables vertexShaderSources, fragmentShaderSources
 #include "shaders.hpp"
-	#include <stdio.h>
 
 #ifdef TEST_BUILD
 	#include <stdio.h>
@@ -165,7 +164,6 @@ RenderGLX::RenderGLX(int width, int height, char *displayName)
 
 	int pbattributes[] = {GLX_PBUFFER_WIDTH, imgw, GLX_PBUFFER_HEIGHT, imgh, None};
 	glxbuffer = glXCreatePbuffer(display, fbconfig[0], pbattributes);
-	printf("obtained pbuffer %i.\n", glxbuffer);
 
 	GLXContext oldContext = glXCreateContext(display, visual, None, GL_TRUE);
 	glXMakeCurrent(display, glxbuffer, oldContext);
@@ -173,7 +171,6 @@ RenderGLX::RenderGLX(int width, int height, char *displayName)
  	GLXCREATECONTEXTATTRIBSARBPROC glXCreateContextAttribsARB = (GLXCREATECONTEXTATTRIBSARBPROC) glXGetProcAddress((const GLubyte*)"glXCreateContextAttribsARB");
 	int ctxattribs[] = {GLX_CONTEXT_MAJOR_VERSION_ARB, 3, GLX_CONTEXT_MINOR_VERSION_ARB, 0, GLX_CONTEXT_PROFILE_MASK_ARB, GLX_CONTEXT_CORE_PROFILE_BIT_ARB, 0};
 	context = glXCreateContextAttribsARB(display, *fbconfig, 0, GL_TRUE, ctxattribs);
-	printf("Created context %i.\n", context);
 	glXMakeCurrent(display, glxbuffer, context);
 	glXDestroyContext(display, oldContext);
 	
@@ -184,7 +181,6 @@ RenderGLX::RenderGLX(int width, int height, char *displayName)
 	glDepthFunc(GL_LESS); 
 
 	programID = LoadShaders();
-	printf("loaded program %i\n", programID);
 	mainMatrixID = glGetUniformLocation(programID, "mainMVP");
 	sideMatrixID = glGetUniformLocation(programID, "sideMVP");
 	shadowSamplerID = glGetUniformLocation(programID, "shadowSampler");
@@ -230,7 +226,6 @@ void RenderGLX::loadMesh(const Mesh mesh) {
 	if (vertexbuffer != -1)
 		glDeleteBuffers(1, &vertexbuffer);
 	glGenBuffers(1, &vertexbuffer);
-	printf("created vbuffer %i\n", vertexbuffer);
 	glBindBuffer(GL_ARRAY_BUFFER, vertexbuffer);
 
 	glBufferData(GL_ARRAY_BUFFER, 3*vertex_count*sizeof(GLfloat), vertex_buffer_data, GL_STATIC_DRAW);
