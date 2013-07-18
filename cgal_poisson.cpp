@@ -41,17 +41,14 @@ typedef CGAL::Surface_mesh_default_triangulation_3 STr;
 typedef CGAL::Surface_mesh_complex_2_in_triangulation_3<STr> C2t3;
 typedef CGAL::Implicit_surface_3<Kernel, Poisson_reconstruction_function> Surface_3;
 
+// adapted from http://www.cgal.org/Manual/beta/examples/Surface_reconstruction_points_3/poisson_reconstruction_example.cpp
 Mesh poissonSurface(const Mat ipoints, const Mat normals)
 {
     // Poisson options
     FT sm_angle = 20.0; // Min triangle angle in degrees.
-    FT sm_radius = 30; // Max triangle size w.r.t. point set average spacing.
+    FT sm_radius = 300; // Max triangle size w.r.t. point set average spacing.
     FT sm_distance = 0.375; // Surface Approximation error w.r.t. point set average spacing.
 
-    // Reads the point set file in points[].
-    // Note: read_xyz_points_and_normals() requires an iterator over points
-    // + property maps to access each point's position and normal.
-    // The position property map can be omitted here as we use iterators over Point_3 elements.
     PointList points;
     points.reserve(ipoints.rows);
     float min = 0, max = 0;
@@ -61,19 +58,7 @@ Mesh poissonSurface(const Mat ipoints, const Mat normals)
 			if (p[0]/p[3] > max) max = p[0]/p[3];
 			if (p[0]/p[3] < min) min = p[0]/p[3];
 		}
-    /*std::ifstream stream("kitten.xyz");
-    if (!stream ||
-        !CGAL::read_xyz_points_and_normals(
-                              stream,
-                              std::back_inserter(points),
-                              CGAL::make_normal_of_point_with_normal_pmap(std::back_inserter(points))))
-    {
-      std::cerr << "Error: cannot read file data/kitten.xyz" << std::endl;
-      return EXIT_FAILURE;
-    }
-		Point a(0,0,0);
-		Vector n(1,0,0);
-		points[0] = Point_with_normal(a, n);*/
+
     // Creates implicit function from the read points using the default solver.
 
     // Note: this method requires an iterator over points
@@ -122,11 +107,8 @@ Mesh poissonSurface(const Mat ipoints, const Mat normals)
 
     assert(tr.number_of_vertices() > 0);
 
-    // saves reconstructed surface mesh
-    //std::ofstream out("kitten_poisson-20-30-0.375.off");
     Polyhedron output_mesh;
     CGAL::output_surface_facets_to_polyhedron(c2t3, output_mesh);
-    //out << output_mesh;
     
     std::map<Polyhedron::Point_3, int> vertexIndices;
     Mat vertices(output_mesh.size_of_vertices(), 4, CV_32FC1), faces(output_mesh.size_of_facets(), 3, CV_32SC1);

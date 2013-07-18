@@ -72,7 +72,7 @@ Configuration::Configuration(int argc, char** argv)
 				printf("Reconstructs dense geometry from given YAML scene calibration and video\n\n");
 				printf("  -e, --estimate-exposure   try to normalize exposure over time (default: false)\n");
 				printf("  -h, --help                print this message and exit\n");
-				printf("  -i, --input               input configuration file name (.yaml, usually exported from Blender)\n");
+				printf("  -i, --input               input configuration file name (.yaml, usually exported from Blender; default: output.obj)\n");
 				printf("  -k, --skip-frames=i       use only every n-th frame of the sequence (default: 1)\n");
 				printf("  -n, --iterations=i        maximal iteration count of surface reconstruction (default: 2)\n");
 				printf("  -o, --output              output mesh file name (.obj)\n");
