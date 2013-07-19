@@ -4,7 +4,9 @@
 
 #include <set>
 #include <getopt.h>
-#include <stdio.h>
+#include <cstdio>
+#include <libgen.h> // dirname(char*)
+const char dirDelimiter = '/';
 using namespace cv;
 
 Configuration::Configuration(int argc, char** argv)
@@ -86,7 +88,7 @@ Configuration::Configuration(int argc, char** argv)
 	if (optind < argc) {
 		inFileName = argv[optind];
 	}
-		
+	
 	FileStorage fs((inFileName ? inFileName : "tracks/koberec-.yaml"), FileStorage::READ);
 	if (!fs.isOpened()) {
 		printf("Cannot read file %s, exiting.\n", inFileName);
@@ -94,7 +96,6 @@ Configuration::Configuration(int argc, char** argv)
 	}
 	
 	FileNode nodeClip = fs["clip"];
- 	string clipPath;
 	nodeClip["width"] >> width;
 	nodeClip["height"] >> height;
 	if (scalingFactor != 1 && scalingFactor != 0) {
@@ -102,7 +103,11 @@ Configuration::Configuration(int argc, char** argv)
 		height /= scalingFactor;
 	}
 	
-	nodeClip["path"] >> clipPath;
+ 	string clipPathRel;
+	nodeClip["path"] >> clipPathRel;
+	string clipPath(dirname(inFileName));
+	clipPath.push_back(dirDelimiter);
+	clipPath.append(clipPathRel);
 	nodeClip["center-x"] >> centerX;
 	nodeClip["center-y"] >> centerY;
 	centerX += 0.5; // conversion from grid to grid, seems to help
@@ -110,6 +115,10 @@ Configuration::Configuration(int argc, char** argv)
 	nodeClip["distortion"] >> lensDistortion;
 	
 	VideoCapture clip(clipPath);
+	if (!clip.isOpened()) {
+		printf("Cannot read clip %s, exiting.\n", clipPath.c_str());
+		exit(1);
+	}
 	int frameCount = clip.get(CV_CAP_PROP_FRAME_COUNT);
 
 	FileNode tracks = fs["tracks"];
@@ -196,6 +205,9 @@ const Mat Configuration::reprojectPoints(const int frameNo) {
 
 void Configuration::estimateExposure()
 {
+	if (verbosity >= 1)
+		printf("Estimating exposure values...\n");
+	
 	int frameCount = cameras.size(), pointCount = bundles.rows;
 	char ch = frames[0].channels();
 	Mat sampledColor(frameCount*pointCount, ch, CV_32FC1); // measured brightness in linear space. rows: (frames x points via sampleIds), columns: channels
@@ -206,35 +218,37 @@ void Configuration::estimateExposure()
 	int32_t rowId=0;
 	int matOffset=0;
 	for (int i=0; i<frameCount; i++) {
-		Mat image;
-		frames[i].copyTo(image);
+		Mat image = frames[i];
 		assert(image.channels() == ch);
 		Mat reprojected = reprojectPoints(i);
-		float *re = reprojected.ptr<float>(0);
 		for (int j=0; j<pointCount; j++) {
-			float imageX = centerX + re[j*ch]*width*0.5 ,
-			      imageY = height - centerY - re[j*ch + 1]*height*0.5;
-			bool valid = false;
-			//if it is enabled in this frame:
 			if (bundlesEnabled[j].count(i)) {
-				valid = true;
+				float *re = reprojected.ptr<float>(j);
+				float imageX = centerX + re[0]*width*0.5,
+				      imageY = height - centerY - re[1]*height*0.5;
+				bool valid = true;
+				//if it is enabled in this frame:
 				float *sc = sampledColor.ptr<float>(rowId);
 				float sample;
 				for (char c=0; c<ch; c++) {
-					if ((sample = sampleImage(image, 2, imageX, imageY, c)) <= 0 || sample == 255) {
+					if ((sample = sampleImage(image, 16, imageX, imageY, c)) == -1) {
 						valid = false;
 						break;
 					}
 					sc[c] = sample;
 				}
-			}
-			if (valid) {
-				sampleIds.at<int32_t>(i, j) = rowId;
-				rowId ++; // otherwise, the data get overwritten
+				if (valid) {
+					sampleIds.at<int32_t>(i, j) = rowId;
+					rowId ++; // otherwise, the data get overwritten
+				} else {
+					sampleIds.at<int32_t>(i, j) = -1;
+				}
+			} else {
+				sampleIds.at<int32_t>(i, j) = -1;
 			}
 		}
 		if (rowId-matOffset < ch) {
-			//FIXME: retry taking all values
+			// TODO: retry taking all values
 			assert(false);
 		}
 		validSamples.push_back(sampledColor.rowRange(matOffset, rowId));
@@ -242,9 +256,6 @@ void Configuration::estimateExposure()
 	}
 	sampledColor.resize(rowId);
 
-	if (verbosity >= 1)
-		printf("Estimating exposure values...\n");
-	
 	// for normalization
 	double sumBrightness = 0;
 	for (int j=0; j<pointCount; j++) {
@@ -264,7 +275,7 @@ void Configuration::estimateExposure()
 	Mat exposure(1./ch * Mat::ones(ch, frameCount, CV_32FC1)), pointBrightness(Mat::ones(pointCount, 1, CV_32FC1));
 	int iteration = 0;
 	double error;
-	for (int iteration=0; iteration<300; iteration++) {
+	for (int iteration=0; iteration<100; iteration++) {
 		error = 0;
 		double currentSumBrightness = 0;
 		//imagine that exposure is correct
@@ -275,19 +286,19 @@ void Configuration::estimateExposure()
 				int32_t rowId = sampleIds.at<int32_t>(i, j);
 				if (rowId == -1)
 					continue;
+				weightSum += 1;
 				float *sc = sampledColor.ptr<float>(rowId);
 				for (char c=0; c < ch; c++) {
 					sum += sc[c] * exposure.at<float>(c, i);
 				}
-				weightSum += 1;
 			}
 			currentSumBrightness += sum;
 			//pointColor[j] = avg(sampledColor[i, j] * exposure[i] over all i)
 			float *pb = pointBrightness.ptr<float>(0);
 			if (weightSum > 0)
-				pb[j] = sum / weightSum;
+				pointBrightness.at<float>(j) = sum / weightSum;
 			else
-				pb[j] = 1.;
+				pointBrightness.at<float>(j) = 0.; // TODO: such points should be just discarded
 		}
 		
 		// normalize brightness to original scale
@@ -309,52 +320,58 @@ void Configuration::estimateExposure()
 			exposure.col(i) = validSamples[i].inv(cv::DECOMP_SVD) * validPointBrightness * (1+omega) - oldExposure * omega;
 			error += cv::norm(validSamples[i]*exposure.col(i) - validPointBrightness) / validPointBrightness.rows;
 		}
-		if (iteration %10 == 1)
 		if (error/frameCount < 0.1)
 			break;
 	}
 
 	//save exposure somewhere (TODO: or multiply each frame directly?)
-	/*if (verbosity >= 3) {
+	if (verbosity >= 3) {
 		FILE *exlog = fopen("exposure.tab", "w+");
 		for (int i=0; i<frameCount; i++) {
-			float stddev = 0., weightSum = 0.;
+			float stddev = 0.;
+			int weightSum = 0;
 			for (int j=0; j<pointCount; j++) {
-				float difference = br[i*pointCount + j] - exposure[i] * pointColor[j];
-				stddev += (difference * difference) * we[i*pointCount + j];
-				weightSum += we[i*pointCount + j];
+				int32_t rowId = sampleIds.at<int32_t>(i, j);
+				if (rowId == -1)
+					continue;
+				float *sc = sampledColor.ptr<float>(rowId);
+				for (char c=0; c<ch; c++) {
+					float difference = sc[c] - exposure.at<float>(c,i) * pointBrightness.at<float>(j);
+					stddev += (difference * difference);
+					weightSum += 1;
+				}
 			}
 			stddev = sqrt(stddev / weightSum);
-			fprintf(exlog, "%f\t%f\n", exposure[i], stddev);
+			fprintf(exlog, "%f\t%f\t%f\t%f\n", exposure.at<float>(0,i), exposure.at<float>(1,i), exposure.at<float>(2,i), stddev);
 		}
 		fclose(exlog);
-	}*/
+	}
 	for (int i=0; i<frameCount; i++) {
-		Mat frame(frames[i].rows, frames[i].cols, CV_32FC1);
 		std::vector<Mat> channels;
 		cv::split(frames[i], channels);
 		frames[i] = Mat::zeros(frames[i].rows, frames[i].cols, CV_8UC1);
 		for (char c=0; c<ch; c++) {
 			frames[i] += channels[c] * exposure.at<float>(c, i);
 		}
-		/* DEBUG
+		/*
+		// DEBUG
 		Mat painted;
 		cv::cvtColor(frames[i], painted, CV_GRAY2BGR);
 		Mat reprojected = reprojectPoints(i);
-		float *re = reprojected.ptr<float>(0);
 		for (int j=0; j<pointCount; j++) {
-			float imageX = centerX + re[j*ch]*width*0.5 ,
-			      imageY = height - centerY - re[j*ch + 1]*height*0.5;
-			cv::Scalar color = cv::Scalar(0, 0, 255);
+			float *re = reprojected.ptr<float>(j);
+			float imageX = centerX + re[0]*width*0.5,
+			      imageY = height - centerY - re[1]*height*0.5;
+			float brightness = pointBrightness.at<float>(j);
+			cv::Scalar color = cv::Scalar(brightness, brightness, brightness);
+			cv::Scalar mark = cv::Scalar(0,0,255);
 			cv::circle(painted, cv::Point(imageX, imageY), 3, color, -1, 8);
+			cv::circle(painted, cv::Point(imageX, imageY), 1, mark, -1, 8);
 		}
 		cv::namedWindow("w");
 		cv::imshow("w", painted);
-		cvWaitKey(100);
+		cvWaitKey(1000);
 		char filename[300];
-		double min, max;
-		minMaxIdx(frames[i], &min, &max);
-		printf("Frame %i: Min: %f Max: %f\n", i, min, max);
 		snprintf(filename, 300, "frame%i.png", i);
 		cv::imwrite(filename, frames[i]);
 		*/

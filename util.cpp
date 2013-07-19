@@ -336,26 +336,28 @@ float sampleImage(const Mat image, float radiusSquared, const float x, const flo
 //x, y is pointing directly into pixel grid, pixel coordinates are in their corners
 //warning: return -1 if coordinates are out of image
 {
-	if (image.isContinuous() && image.depth() == CV_8U) {
-		char ch = image.channels();
-		float sum = 0., weightSum = 0.;
-		//sample brightness from given neighborhood
-		float radius = sqrt(radiusSquared);
-		for (int ny = (int)MAX(0, y - radius); ny < MIN(y + radius + 1, image.rows); ny++) {
-			const uchar *row = image.ptr<uchar>(ny);
-			for (int nx = (int)MAX(0, x - radius); nx < MIN(x + radius + 1, image.cols); nx++) {
-				float dx = nx - x, dy = ny - y;
-				if (dx*dx + dy*dy <= radiusSquared) {
-					sum += row[nx*ch + channel];
-					weightSum += ch;
-				}
+	assert (image.isContinuous() && image.depth() == CV_8U);
+	char ch = image.channels();
+	float sum = 0.;
+	int weightSum = 0;
+	//sample brightness from given neighborhood
+	float radius = sqrt(radiusSquared);
+	for (int ny = (int)MAX(0, y - radius); ny < MIN(y + radius + 1, image.rows); ny++) {
+		const uchar *row = image.ptr<uchar>(ny);
+		for (int nx = (int)MAX(0, x - radius); nx < MIN(x + radius + 1, image.cols); nx++) {
+			float dx = nx - x, dy = ny - y;
+			uchar val = row[nx*ch + channel];
+			if (dx*dx + dy*dy <= radiusSquared && val > 0 && val < 255) {
+				sum += val;
+				weightSum += 1;
 			}
 		}
-		if (weightSum > 0)
-			return sum / weightSum;
-		else
-			return -1;
-	} else {
+	}
+	if (weightSum > 0)
+		return sum / weightSum;
+	else {
+		printf("Failed on %f, %f, %i\n", x, y, channel);
+		//assert(false);
 		return -1;
 	}
 }
