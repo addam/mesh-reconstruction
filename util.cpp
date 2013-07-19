@@ -304,12 +304,15 @@ Mat mixBackground(const Mat image, const Mat background, const Mat depth)
 	assert(background.channels() == 1);
 	Mat result(depth.rows, depth.cols, CV_8UC1);
 	for (int i=0; i<image.rows; i++) {
-		const uchar *srcrow = background.ptr<const uchar>(i),
+		const uchar *srcrow = image.ptr<const uchar>(i),
+		            *bgrow = background.ptr<const uchar>(i),
 		            *depthrow = depth.ptr<const uchar>(i);
 		uchar *dstrow = result.ptr<uchar>(i);
 		for (int j=0; j<image.cols; j++) {
 			// black (0,0,0) in the image denotes invalid pixels; valid black would be (0,0,1)
-			if (depthrow[j] == backgroundDepth || !dstrow[3*j+1]) {
+			if (depthrow[j] == backgroundDepth || !srcrow[3*j+1]) {
+				dstrow[j] = bgrow[j];
+			} else {
 				dstrow[j] = srcrow[3*j];
 			}
 		}
