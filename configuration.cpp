@@ -1,6 +1,6 @@
 #include "recon.hpp"
 #include <opencv2/highgui/highgui.hpp>
-#include "opencv2/imgproc/imgproc.hpp"
+#include <opencv2/imgproc/imgproc.hpp>
 
 #include <set>
 #include <getopt.h>
@@ -168,8 +168,12 @@ Configuration::Configuration(int argc, char** argv)
 			clip.read(frame);
 	}
 	
-	if (doEstimateExposure)
+	if (doEstimateExposure) {
 		estimateExposure();
+	} else {
+		for (int i=0; i<frames.size(); i++)
+			cv::cvtColor(frames[i], frames[i], CV_BGR2GRAY);
+	}
 }
 
 void cameraToScreen(Mat points, const vector<float> lensDistortion, float aspect)
@@ -191,77 +195,127 @@ const Mat Configuration::reprojectPoints(const int frameNo) {
 }
 
 void Configuration::estimateExposure()
-//TODO: je potřeba to převést na poctivou korekci bílé. Možná dokonce CAM?
-//TODO: convert from camera color space to linear
- // OR try to estimate the gamma? Would be super-cool :)
 {
 	int frameCount = cameras.size(), pointCount = bundles.rows;
-	Mat brightness(frameCount, pointCount, CV_32FC1); // measured brightness in linear space. rows: frames, cols: points
-	Mat weight(frameCount, pointCount, CV_32FC1); // reliability of each measurement
-	//TODO: weight sum across points and frames can be precalculated, no need to save two matrices
+	char ch = frames[0].channels();
+	Mat sampledColor(frameCount*pointCount, ch, CV_32FC1); // measured brightness in linear space. rows: (frames x points via sampleIds), columns: channels
+	Mat sampleIds(-1 * Mat::ones(frameCount, pointCount, CV_32SC1)); // row index of given point, given frame in sampledColor or -1 if invalid
+	std::vector<Mat> validSamples; // submatrices prepared for the linear system
+	validSamples.reserve(frameCount);
 	
-	float *br = brightness.ptr<float>(0), *we = weight.ptr<float>(0);
+	int32_t rowId=0;
+	int matOffset=0;
 	for (int i=0; i<frameCount; i++) {
 		Mat image;
 		frames[i].copyTo(image);
+		assert(image.channels() == ch);
 		Mat reprojected = reprojectPoints(i);
 		float *re = reprojected.ptr<float>(0);
 		for (int j=0; j<pointCount; j++) {
+			float imageX = centerX + re[j*ch]*width*0.5 ,
+			      imageY = height - centerY - re[j*ch + 1]*height*0.5;
+			bool valid = false;
 			//if it is enabled in this frame:
-			float imageX = centerX + re[j*3]*width*0.5 , imageY = height - centerY - re[j*3 + 1]*height*0.5;
-			float sample;
-			if (bundlesEnabled[j].count(i) && (sample = sampleImage(image, 1, imageX, imageY)) > 0) {
-				br[i*pointCount + j] = sample;
-				we[i*pointCount + j] = 1.;
-			} else {
-				br[i*pointCount + j] = 1.;
-				we[i*pointCount + j] = 0.;
+			if (bundlesEnabled[j].count(i)) {
+				valid = true;
+				float *sc = sampledColor.ptr<float>(rowId);
+				float sample;
+				for (char c=0; c<ch; c++) {
+					if ((sample = sampleImage(image, 2, imageX, imageY, c)) <= 0 || sample == 255) {
+						valid = false;
+						break;
+					}
+					sc[c] = sample;
+				}
+			}
+			if (valid) {
+				sampleIds.at<int32_t>(i, j) = rowId;
+				rowId ++; // otherwise, the data get overwritten
 			}
 		}
+		if (rowId-matOffset < ch) {
+			//FIXME: retry taking all values
+			assert(false);
+		}
+		validSamples.push_back(sampledColor.rowRange(matOffset, rowId));
+		matOffset = rowId;
 	}
+	sampledColor.resize(rowId);
 
 	if (verbosity >= 1)
 		printf("Estimating exposure values...\n");
-	vector<float> exposure(frameCount, 1.0), pointColor(pointCount, 1.0); // brightness (should)= exposure * pointColors.t()
-	float change;
-	do {
-		change = 0.;
+	
+	// for normalization
+	double sumBrightness = 0;
+	for (int j=0; j<pointCount; j++) {
+		float sum = 0.;
+		int weightSum = 0;
+		for (int i=0; i<frameCount; i++) {
+			int32_t rowId = sampleIds.at<int32_t>(i, j);
+			if (rowId == -1)
+				continue;
+			float *sc = sampledColor.ptr<float>(rowId);
+			for (char c=0; c < ch; c++)
+				sumBrightness += sc[c];
+		}
+	}
+	sumBrightness *= 1./ch;
+	// sampledColor[frame][point] . exposure[frame] (should)= pointBrightness[point]
+	Mat exposure(1./ch * Mat::ones(ch, frameCount, CV_32FC1)), pointBrightness(Mat::ones(pointCount, 1, CV_32FC1));
+	int iteration = 0;
+	double error;
+	for (int iteration=0; iteration<300; iteration++) {
+		error = 0;
+		double currentSumBrightness = 0;
 		//imagine that exposure is correct
 		for (int j=0; j<pointCount; j++) {
-			float sum = 0., weightSum = 0.;
+			float sum = 0.;
+			int weightSum = 0;
 			for (int i=0; i<frameCount; i++) {
-				if (exposure[i] > 0) {
-					sum += br[i*pointCount + j] * we[i*pointCount + j] / exposure[i];
-					weightSum += we[i*pointCount + j];
+				int32_t rowId = sampleIds.at<int32_t>(i, j);
+				if (rowId == -1)
+					continue;
+				float *sc = sampledColor.ptr<float>(rowId);
+				for (char c=0; c < ch; c++) {
+					sum += sc[c] * exposure.at<float>(c, i);
 				}
+				weightSum += 1;
 			}
-			//pointColor[j] = weightedAvg(brightness[i, j]/exposure[i] over all i)
+			currentSumBrightness += sum;
+			//pointColor[j] = avg(sampledColor[i, j] * exposure[i] over all i)
+			float *pb = pointBrightness.ptr<float>(0);
 			if (weightSum > 0)
-				pointColor[j] = sum / weightSum;
+				pb[j] = sum / weightSum;
 			else
-				pointColor[j] = 0.;
+				pb[j] = 1.;
 		}
+		
+		// normalize brightness to original scale
+		pointBrightness *= sumBrightness / currentSumBrightness;
+		
 		//imagine that point colors are correct
 		for (int i=0; i<frameCount; i++) {
-			float sum = 0., weightSum = 0.;
+			Mat oldExposure;
+			exposure.col(i).copyTo(oldExposure);
+			//exposure[i][*] = validSamples[i]^-1 . pointBrightness[*]
+			Mat validPointBrightness(0, 1, CV_32FC1);
 			for (int j=0; j<pointCount; j++) {
-				if (pointColor[j] > 0) {
-					sum += br[i*pointCount + j] * we[i*pointCount + j] / pointColor[j];
-					weightSum += we[i*pointCount + j];
-				}
+				if (sampleIds.at<int32_t>(i, j) >= 0)
+					validPointBrightness.push_back(pointBrightness.at<float>(j));
 			}
-			//exposure[i] = weightedAvg(brightness[i, j]/pointColor[j] over all j)
-			if (weightSum > 0) {
-				float newExposure = sum / weightSum, diff = exposure[i] - newExposure;
-				change += diff*diff;
-				exposure[i] = newExposure;
-			} else
-				exposure[i] = 0.;
+			assert(validSamples[i].rows == validPointBrightness.rows);
+			// extremely strongly overrelax
+			float omega = 0.8;
+			exposure.col(i) = validSamples[i].inv(cv::DECOMP_SVD) * validPointBrightness * (1+omega) - oldExposure * omega;
+			error += cv::norm(validSamples[i]*exposure.col(i) - validPointBrightness) / validPointBrightness.rows;
 		}
-	} while (change/frameCount > 1e-10);
-	
+		if (iteration %10 == 1)
+		if (error/frameCount < 0.1)
+			break;
+	}
+
 	//save exposure somewhere (TODO: or multiply each frame directly?)
-	if (verbosity >= 3) {
+	/*if (verbosity >= 3) {
 		FILE *exlog = fopen("exposure.tab", "w+");
 		for (int i=0; i<frameCount; i++) {
 			float stddev = 0., weightSum = 0.;
@@ -274,9 +328,36 @@ void Configuration::estimateExposure()
 			fprintf(exlog, "%f\t%f\n", exposure[i], stddev);
 		}
 		fclose(exlog);
-	}
+	}*/
 	for (int i=0; i<frameCount; i++) {
-		frames[i] /= exposure[i];
+		Mat frame(frames[i].rows, frames[i].cols, CV_32FC1);
+		std::vector<Mat> channels;
+		cv::split(frames[i], channels);
+		frames[i] = Mat::zeros(frames[i].rows, frames[i].cols, CV_8UC1);
+		for (char c=0; c<ch; c++) {
+			frames[i] += channels[c] * exposure.at<float>(c, i);
+		}
+		/* DEBUG
+		Mat painted;
+		cv::cvtColor(frames[i], painted, CV_GRAY2BGR);
+		Mat reprojected = reprojectPoints(i);
+		float *re = reprojected.ptr<float>(0);
+		for (int j=0; j<pointCount; j++) {
+			float imageX = centerX + re[j*ch]*width*0.5 ,
+			      imageY = height - centerY - re[j*ch + 1]*height*0.5;
+			cv::Scalar color = cv::Scalar(0, 0, 255);
+			cv::circle(painted, cv::Point(imageX, imageY), 3, color, -1, 8);
+		}
+		cv::namedWindow("w");
+		cv::imshow("w", painted);
+		cvWaitKey(100);
+		char filename[300];
+		double min, max;
+		minMaxIdx(frames[i], &min, &max);
+		printf("Frame %i: Min: %f Max: %f\n", i, min, max);
+		snprintf(filename, 300, "frame%i.png", i);
+		cv::imwrite(filename, frames[i]);
+		*/
 	}
 }
 

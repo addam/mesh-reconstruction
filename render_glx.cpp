@@ -15,9 +15,10 @@
 	
 	#include <opencv2/core/core.hpp>
 	#include <opencv2/highgui/highgui.hpp>
+	#include <opencv2/imgproc/imgproc.hpp>
 	typedef cv::Mat Mat;
 	class Render {};
-	class Heuristic {};
+	class Heuristic {public: cv::Size renderSize(){return cv::Size(0,0);};};
 	typedef struct Mesh{
 		Mat vertices, faces;
 		Mesh(Mat v, Mat f):vertices(v), faces(f) {};} Mesh;
@@ -56,12 +57,13 @@ Render *spawnRender(Heuristic hint)
 }
 
 GLuint createTexture(const Mat image){
-	Mat flipped(image.rows, image.cols, image.channels());
+	assert(image.channels() == 1);
+	Mat flipped(image.rows, image.cols, 1);
 	cv::flip(image, flipped, 0);
 	GLuint texture;
 	glGenTextures(1, &texture);
 	glBindTexture(GL_TEXTURE_2D, texture);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, flipped.cols, flipped.rows, 0, GL_BGR, GL_UNSIGNED_BYTE, flipped.data);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, flipped.cols, flipped.rows, 0, GL_RED, GL_UNSIGNED_BYTE, flipped.data);
 	
 	// nearest neighbor filtering
 	//glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
@@ -309,7 +311,7 @@ Mat RenderGLX::projected(const Mat camera, const Mat frame, const Mat projector)
 
 	Mat result(imgh, imgw, CV_8UC3);
 	glReadBuffer(GL_FRONT);
-	glReadPixels(0, 0, imgw, imgh, GL_BGR, GL_UNSIGNED_BYTE, result.data);
+	glReadPixels(0, 0, imgw, imgh, GL_RGB, GL_UNSIGNED_BYTE, result.data);
 	
 	glDeleteTextures(1, &texture);
 	glDeleteTextures(1, &renderedTexture);
@@ -357,6 +359,7 @@ Mat sideMVP(cv::Matx44f(-1.831691861152649, -1.1502554416656494, -0.327068448066
 
 	r.loadMesh(Mesh(points, indices));
 	Mat tex = cv::imread("opengl/grid.png");
+	cv::cvtColor(tex, tex, CV_RGB2GRAY);
 	Mat frame = r.projected(MVP, tex, sideMVP);
 	for (int i=0; i<points.rows; i++) {
 		Mat point = points.row(i).t();

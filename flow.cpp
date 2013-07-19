@@ -18,10 +18,7 @@ Mat calculateFlow(Mat prev, Mat next)
 	double pyr_scale = 0.8, poly_sigma = (prev.rows+prev.cols)/1000.0;
 	int levels = 100, winsize = (prev.rows+prev.cols)/100, iterations = 7, poly_n = (poly_sigma<1.5?5:7), flags = 0;//cv::OPTFLOW_FARNEBACK_GAUSSIAN;
 	Mat flow;
-	Mat prev_gray, next_gray;
-	cv::cvtColor(prev,prev_gray,CV_RGB2GRAY);
-	cv::cvtColor(next,next_gray,CV_RGB2GRAY);
-	cv::calcOpticalFlowFarneback(prev_gray, next_gray, flow, pyr_scale, levels, winsize, iterations, poly_n, poly_sigma, flags);
+	cv::calcOpticalFlowFarneback(prev, next, flow, pyr_scale, levels, winsize, iterations, poly_n, poly_sigma, flags);
 	flags = cv::OPTFLOW_USE_INITIAL_FLOW | cv::OPTFLOW_FARNEBACK_GAUSSIAN;
 	pyr_scale = 0.5;
 	iterations = 50;
@@ -82,8 +79,8 @@ int main(int argc, char **argv)
 	//printf("Calculating optflow between %s and %s.\n", argv[1], argv[2]);
 	printf("Levels: %i; winsize: %i; iterations: %i; polyexpansion size: %i; pyramid scale: %g; sigma: %g; Gaussian: %s\n", levels, winsize, iterations, poly_n, pyr_scale, poly_sigma, (flags?"TRUE":"FALSE"));
 	Mat prev_gray, next_gray, flow;
-	cv::cvtColor(prev,prev_gray,CV_RGB2GRAY);
-	cv::cvtColor(next,next_gray,CV_RGB2GRAY);
+	cv::cvtColor(prev,prev_gray,CV_BGR2GRAY);
+	cv::cvtColor(next,next_gray,CV_BGR2GRAY);
 	cv::calcOpticalFlowFarneback(prev_gray, next_gray, flow, pyr_scale, levels, winsize, iterations, poly_n, poly_sigma, flags);
 	
 	Mat mixed(flow.rows, flow.cols, CV_32FC3);

@@ -277,12 +277,11 @@ Mat compare(const Mat prev, const Mat next)
 	std::vector<Mat> diffPyramid;
 	int size = (prev.rows < prev.cols) ? prev.rows : prev.cols;
 	Mat a, b;
-	prev.convertTo(a, CV_32FC3);
-	next.convertTo(b, CV_32FC3);
+	prev.convertTo(a, CV_32FC1);
+	next.convertTo(b, CV_32FC1);
 	while (1) {
 		Mat diff;
 		cv::absdiff(a, b, diff);
-		cv::cvtColor(diff, diff, CV_RGB2GRAY);
 		diffPyramid.push_back(diff);
 		if (size <= 2)
 			break;
@@ -298,22 +297,24 @@ Mat compare(const Mat prev, const Mat next)
 	return diffPyramid[0];
 }
 
-void mixBackground(Mat image, const Mat background, const Mat depth)
+Mat mixBackground(const Mat image, const Mat background, const Mat depth)
+// return image.first_channel if (image.second_channel > 0 and depth < backgroundDepth) else background
 {
 	assert(image.channels() == 3);
-	assert(background.channels() == 3);
-	// I HATE YOU FOR THIS, OPENCV.
+	assert(background.channels() == 1);
+	Mat result(depth.rows, depth.cols, CV_8UC1);
 	for (int i=0; i<image.rows; i++) {
 		const uchar *srcrow = background.ptr<const uchar>(i),
 		            *depthrow = depth.ptr<const uchar>(i);
-		uchar *dstrow = image.ptr<uchar>(i);
+		uchar *dstrow = result.ptr<uchar>(i);
 		for (int j=0; j<image.cols; j++) {
 			// black (0,0,0) in the image denotes invalid pixels; valid black would be (0,0,1)
-			if (depthrow[j] == backgroundDepth || !(dstrow[3*j]|dstrow[3*j+1]|dstrow[3*j+2])) {
-				memcpy(dstrow+3*j, srcrow+3*j, 3);
+			if (depthrow[j] == backgroundDepth || !dstrow[3*j+1]) {
+				dstrow[j] = srcrow[3*j];
 			}
 		}
 	}
+	return result;
 }
 
 Mat flowRemap(const Mat flow, const Mat image)
@@ -326,25 +327,26 @@ Mat flowRemap(const Mat flow, const Mat image)
 	for (int y=0; y < flow.rows; y++)
 		flowMap.row(y) += cv::Scalar(0, y);
 	Mat remapped;
+	
 	cv::remap(image, remapped, flowMap, Mat(), CV_INTER_CUBIC);
 	return remapped;
 }
 
-float sampleImage(const Mat image, float radius, const float x, const float y)
+float sampleImage(const Mat image, float radiusSquared, const float x, const float y, char channel)
 //x, y is pointing directly into pixel grid, pixel coordinates are in their corners
 //warning: return -1 if coordinates are out of image
 {
 	if (image.isContinuous() && image.depth() == CV_8U) {
 		char ch = image.channels();
 		float sum = 0., weightSum = 0.;
-		//sample brightness from 3x3 neighborhood TODO: there is an OpenCV function for gaussian sampling...
+		//sample brightness from given neighborhood
+		float radius = sqrt(radiusSquared);
 		for (int ny = (int)MAX(0, y - radius); ny < MIN(y + radius + 1, image.rows); ny++) {
 			const uchar *row = image.ptr<uchar>(ny);
 			for (int nx = (int)MAX(0, x - radius); nx < MIN(x + radius + 1, image.cols); nx++) {
 				float dx = nx - x, dy = ny - y;
-				if (dx*dx + dy*dy <= radius*radius) {
-					for (char channel = 0; channel < ch; channel++)
-						sum += row[nx*ch + channel];
+				if (dx*dx + dy*dy <= radiusSquared) {
+					sum += row[nx*ch + channel];
 					weightSum += ch;
 				}
 			}

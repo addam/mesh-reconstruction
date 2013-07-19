@@ -65,7 +65,7 @@ int main(int argc, char ** argv) {
 			MatList flows, cameras;
 			for (int fb = hint.beginSide(fa); fb != Heuristic::sentinel; fb = hint.nextSide(fa)) {
 				Mat projectedImage = render->projected(config.camera(fa), config.frame(fb), config.camera(fb));
-				mixBackground(projectedImage, originalImage, depth);
+				projectedImage = mixBackground(projectedImage, originalImage, depth);
 				Mat flow = calculateFlow(originalImage, projectedImage);
 				//mixBackground(flow, Mat::zeros(flow.rows, flow.cols, CV_32FC4), depth);
 				if (config.verbosity >= 3) {

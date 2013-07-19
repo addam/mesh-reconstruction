@@ -61,7 +61,7 @@ test_flow: flow.cpp
 	${CXX} ${CXXFLAGS} flow.cpp -DTEST_BUILD -g ${opencv_LIBS} -o test_flow
 
 test_glx: render_glx.cpp shaders.hpp
-	${CXX} ${CXXFLAGS} render_glx.cpp ${RENDER_glx_LIBS} -lopencv_core -lopencv_highgui -DTEST_BUILD -o glx
+	${CXX} ${CXXFLAGS} render_glx.cpp ${RENDER_glx_LIBS} -lopencv_core -lopencv_imgproc -lopencv_highgui -DTEST_BUILD -o glx
 	./glx
 
 sandbox: sandbox.cpp
