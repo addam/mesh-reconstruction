@@ -18,13 +18,14 @@ int main(int argc, char ** argv) {
 	while (hint.notHappy(points)) {
 		//sestav z nich alphashape
 		float alpha;
-		logprint(config, 1, "Tesselating...\n");
+		logprint(config, 1, "Meshing...\n");
 		Mesh mesh = hint.tesselate(points, normals);
 		logprint(config, 2, " %i faces.\n", mesh.faces.rows);
 		if (config.verbosity >= 3)
 			saveMesh(mesh, "recon_orig.obj");
 		render->loadMesh(mesh);
 
+		logprint(config, 1, "Choosing cameras...\n");
 		hint.chooseCameras(mesh, config.allCameras());
 		if (config.verbosity >= 1) {
 			int fa = hint.beginMain();
@@ -67,7 +68,6 @@ int main(int argc, char ** argv) {
 				mixBackground(projectedImage, originalImage, depth);
 				Mat flow = calculateFlow(originalImage, projectedImage);
 				//mixBackground(flow, Mat::zeros(flow.rows, flow.cols, CV_32FC4), depth);
-				flow += cv::Scalar(0,0,0,255);
 				if (config.verbosity >= 3) {
 					char filename[300];
 					//nahrubo ulož výsledek
@@ -92,9 +92,9 @@ int main(int argc, char ** argv) {
 			cameras.push_back(config.camera(fa));
 			logprint(config, 2, " After processing main frame %i: %i points\n", fa, points.rows);
 		}
-		//if (config.verbosity >= 3)
-		//	saveMesh(Mesh(points, Mat()), "purepoints.obj");
-		//hint.filterPoints(points, normals);
+		if (config.verbosity >= 3)
+			saveMesh(Mesh(points, Mat()), "purepoints.obj");
+		hint.filterPoints(points, normals);
 		logprint(config, 2, " %i filtered points\n", points.rows);
 	}
 	delete render;

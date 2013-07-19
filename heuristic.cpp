@@ -75,7 +75,7 @@ void Heuristic::filterPoints(Mat& points, Mat& normals)
 		}
 	}
 	neighborBlocks[pointCount] = neighbors.size();
-	printf(" Neighbors total: %lu, %f per point.\n", neighbors.size(), ((float)neighbors.size())/pointCount);
+	printf(" Neighbors total: %lu, %5.1g per point.\n", neighbors.size(), ((float)neighbors.size())/pointCount);
 	
 	printf("Estimating local density...\n");
 	// Spočítej hustotu bodů v okolí každého (vlastní vektor pomocí power iteration)
@@ -333,7 +333,7 @@ const CameraLabel chooseSide(std::map<unsigned, float> &weights, CameraLabel mai
 		if (label.index == mainCamera.index)
 			continue;
 		float parallax = sqrt(pow2(label.viewX - mainCamera.viewX) + pow2(label.viewY - mainCamera.viewY)) / focal;
-		float weight = label.cosFromViewer * pow2(parallax) / pow2(label.distance);
+		float weight = label.cosFromViewer * parallax / pow2(label.distance);
 		actualWeightSum += weight;
 		unsigned compactIndex = compact(mainCamera.index, label.index);
 		if (weights.count(compactIndex) && weights[compactIndex] >= 1)

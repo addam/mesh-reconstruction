@@ -118,7 +118,7 @@ DensityPoint triangulatePixel(float x, float y, const Mat measuredPoints, const 
 			break;
 		}
 		// apply sanity constraints to delta_z (so that the point does not get too close to any of the cameras)
-		/*float reasonableStep = 0.5, worstStep = reasonableStep;
+		float reasonableStep = 0.5, worstStep = reasonableStep;
 		{int i=0;	for (MatList::const_iterator camera=cameras.begin(); camera!=cameras.end(); camera++, i++) {
 			float thisStep = 1 + delta_z * camera->row(3).t().dot(mainCameraInv.col(2)) / pointsW.at<float>(i);
 			if (thisStep < worstStep)
@@ -126,7 +126,7 @@ DensityPoint triangulatePixel(float x, float y, const Mat measuredPoints, const 
 		}}
 		if (worstStep < reasonableStep) {
 			delta_z = (worstStep - 1) / (reasonableStep - 1);
-		}*/
+		}
 		// another heuristic so that it does not jump back and forth
 		if ((delta_z > 0 && last_delta_z < 0 && 2*delta_z > -last_delta_z) ||
 		    (delta_z < 0 && last_delta_z > 0 && -2*delta_z > last_delta_z))
@@ -211,7 +211,7 @@ Mat triangulatePixels(const MatList flows, const Mat mainCamera, const MatList c
 		}
 	}
 	points.resize(pixelId);
-	const int radius = 2;
+	const int radius = 3;
 	std::vector<Mat> cameraCenters(1, extractCameraCenter(mainCamera));
 	for (MatList::const_iterator camera=cameras.begin(); camera!=cameras.end(); camera++) {
 		cameraCenters.push_back(extractCameraCenter(*camera));
@@ -228,6 +228,9 @@ Mat triangulatePixels(const MatList flows, const Mat mainCamera, const MatList c
 			if (pixelId < 0)
 				continue;
 			float pdf = points.at<float>(pixelId, 4);
+			// wild guess: normalize pdf per side camera -> nth root
+			if (cameras.size() > 1)
+				pdf = pow(pdf, 1.0/cameras.size());
 			for (int ny=row-radius; ny<=row+radius; ny++) {
 				if (ny < 0 || ny >= height)
 					continue;
@@ -242,7 +245,7 @@ Mat triangulatePixels(const MatList flows, const Mat mainCamera, const MatList c
 				}
 			}
 			Mat normal;
-			if (neighborhood.rows > 0) {
+			if (neighborhood.rows >= 3) {
 				// slow but easy
 				shape(neighborhood, cv::noArray(), CV_PCA_DATA_AS_ROW);
 				normal = shape.eigenvectors.row(2);
@@ -262,7 +265,6 @@ Mat triangulatePixels(const MatList flows, const Mat mainCamera, const MatList c
 				}
 			}
 			points.row(pixelId).colRange(4,7) = normal * pdf / cv::norm(normal);
-			//FIXME: set correct length
 		}
 	}
 	//points.colRange(4,7) /= maxDensity;
@@ -410,7 +412,7 @@ void saveImage(const Mat image, const char *fileName)
 
 void saveImage(const Mat image, const char *fileName, bool normalize)
 {
-	if (image.channels() == 2) {
+	if (image.channels() > 1 && image.channels() != 3) {
 		Mat bgr(image.rows, image.cols, CV_32FC3);
 		int from_to[] = {-1,0, 0,1, 1,2};
 		mixChannels(&image, 1, &bgr, 1, from_to, 3);
