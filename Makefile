@@ -57,6 +57,9 @@ test_pcl: pcl.cpp
 	${CXX} ${CXXFLAGS} pcl.cpp -O2 -I/usr/local/include/pcl-1.6 -I/usr/include/eigen3 -Wno-deprecated-declarations ${pcl_LIBS} -lpcl_io -lpcl_features -lopencv_core -DTEST_BUILD -o test_pcl -g
 	/usr/bin/time -f '%e seconds, %M kBytes' ./test_pcl
 
+test_flow: flow.cpp
+	${CXX} ${CXXFLAGS} flow.cpp -DTEST_BUILD -g ${opencv_LIBS} -o test_flow
+
 test_glx: render_glx.cpp shaders.hpp
 	${CXX} ${CXXFLAGS} render_glx.cpp ${RENDER_glx_LIBS} -lopencv_core -lopencv_highgui -DTEST_BUILD -o glx
 	./glx
