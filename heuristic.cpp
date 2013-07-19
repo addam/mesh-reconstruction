@@ -46,7 +46,8 @@ inline float const densityFn(float dist, float radius)
 
 void Heuristic::filterPoints(Mat& points, Mat& normals)
 {
-	printf("Filtering: Preparing neighbor table...\n");
+	if (config->verbosity >= 1)
+		printf("Filtering: Preparing neighbor table...\n");
 	int pointCount = points.rows;
 	Mat points3 = dehomogenize(points);
 	
@@ -75,9 +76,11 @@ void Heuristic::filterPoints(Mat& points, Mat& normals)
 		}
 	}
 	neighborBlocks[pointCount] = neighbors.size();
-	printf(" Neighbors total: %lu, %5.1g per point.\n", neighbors.size(), ((float)neighbors.size())/pointCount);
+	if (config->verbosity >= 2)
+		printf(" Neighbors total: %lu, %5.1g per point.\n", neighbors.size(), ((float)neighbors.size())/pointCount);
 	
-	printf("Estimating local density...\n");
+	if (config->verbosity >= 1)
+		printf("Estimating local density...\n");
 	// Spočítej hustotu bodů v okolí každého (vlastní vektor pomocí power iteration)
 	std::vector<float> density(pointCount, 1.), densityNew(pointCount, 0.);
 	double change;
@@ -116,7 +119,8 @@ void Heuristic::filterPoints(Mat& points, Mat& normals)
 			densityLimit = density[i];
 	}
 	densityLimit = .7;
-	printf(" Density converged in %i iterations. Limit set to: %f\n", densityIterationNo, densityLimit);
+	if (config->verbosity >= 2)
+		printf(" Density converged in %i iterations. Limit set to: %f\n", densityIterationNo, densityLimit);
 	//projdi kandidáty od nejhustších, poznamenávej si je jako přidané a dle libovůle snižuj hustotu okolním
 	std::vector<int> order(pointCount, -1);
 	cv::sortIdx(density, order, cv::SORT_DESCENDING);

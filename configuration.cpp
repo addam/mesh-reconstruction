@@ -30,11 +30,12 @@ Configuration::Configuration(int argc, char** argv)
 			{"scale", required_argument, 0, 's' },
 			{"skip-frames", required_argument, 0, 'k' },
 			{"verbose", no_argument,       0,  'v' },
+			{"hyper-verbose", no_argument,       0,  'V' },
 			{"help",    no_argument,       0,  'h' },
 			{0,         0,                 0,  0 }
 		};
 		
-		char c = getopt_long(argc, argv, "i:o:en:s:k:vh", long_options, &option_index);
+		char c = getopt_long(argc, argv, "i:o:en:s:k:vVh", long_options, &option_index);
 		if (c == -1)
 			break;
 		
@@ -64,6 +65,10 @@ Configuration::Configuration(int argc, char** argv)
 				break;
 			
 			case 'v':
+				verbosity = 2;
+				break;
+			
+			case 'V':
 				verbosity = 99;
 				break;
 			
@@ -79,7 +84,8 @@ Configuration::Configuration(int argc, char** argv)
 				printf("  -n, --iterations=i        maximal iteration count of surface reconstruction (default: 2)\n");
 				printf("  -o, --output              output mesh file name (.obj)\n");
 				printf("  -s, --scale=f             downsample the input video by a given factor (default: 1.0)\n");
-				printf("  -v, --verbose             print out messages during computation\n");
+				printf("  -v, --verbose             print out current task during computation\n");
+				printf("  -V                        print out what comes to mind, and save all images at hand\n");
 				exit(0);
 				break;
 		}
@@ -98,10 +104,6 @@ Configuration::Configuration(int argc, char** argv)
 	FileNode nodeClip = fs["clip"];
 	nodeClip["width"] >> width;
 	nodeClip["height"] >> height;
-	if (scalingFactor != 1 && scalingFactor != 0) {
-		width /= scalingFactor;
-		height /= scalingFactor;
-	}
 	
  	string clipPathRel;
 	nodeClip["path"] >> clipPathRel;
@@ -110,6 +112,12 @@ Configuration::Configuration(int argc, char** argv)
 	clipPath.append(clipPathRel);
 	nodeClip["center-x"] >> centerX;
 	nodeClip["center-y"] >> centerY;
+	if (scalingFactor != 1 && scalingFactor != 0) {
+		width /= scalingFactor;
+		height /= scalingFactor;
+		centerX /= scalingFactor;
+		centerY /= scalingFactor;
+	}
 	centerX += 0.5; // conversion from grid to grid, seems to help
 	centerY -= 0.5;
 	nodeClip["distortion"] >> lensDistortion;

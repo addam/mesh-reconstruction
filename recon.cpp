@@ -27,7 +27,7 @@ int main(int argc, char ** argv) {
 
 		logprint(config, 1, "Choosing cameras...\n");
 		hint.chooseCameras(mesh, config.allCameras());
-		if (config.verbosity >= 1) {
+		if (config.verbosity >= 2) {
 			int fa = hint.beginMain();
 			if (fa == Heuristic::sentinel) { // FIXME check always
 				printf(" Heuristic has chosen no cameras, which is an error. However, we have got nothing more to do.\n");
