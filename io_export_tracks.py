@@ -40,7 +40,7 @@ def write_tracks(context, filepath, include_hidden):
 					" distortion: {distortion}\n"
 					" center-x: {center_x}\n"
 					" center-y: {center_y}\n".format(
-					path=bpy.path.abspath(clip.filepath),
+					path=bpy.path.relpath(clip.filepath)[2:],
 					width=clip.size[0],
 					height=clip.size[1],
 					fov=fov,
