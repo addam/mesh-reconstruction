@@ -128,8 +128,16 @@ Configuration::Configuration(int argc, char** argv)
 		(*it)["bundle"] >> bundle;
 		vector<int> enabledFrames;
 		(*it)["frames-enabled"] >> enabledFrames;
-		for (int i=0; i<enabledFrames.size(); i++)
-			enabledFrames[i] -= 1;
+		{
+			int writeIndex = 0;
+			for (int i=0; i<enabledFrames.size(); i++) {
+				if ((enabledFrames[i] - 1)%skipFrames == 0) {
+					enabledFrames[writeIndex] = (enabledFrames[i] - 1) / skipFrames;
+					writeIndex += 1;
+				}
+			}
+			enabledFrames.resize(writeIndex);
+		}
 		std::set<int> enabledFramesSet(enabledFrames.begin(), enabledFrames.end());
 		bundlesEnabled.push_back(enabledFramesSet);
 		bundle = bundle.t();
