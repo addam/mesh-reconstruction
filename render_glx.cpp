@@ -256,10 +256,35 @@ Mat RenderGLX::projected(const Mat camera, const Mat frame, const Mat projector)
 	glDisableVertexAttribArray(1);
 
 	Mat shadow(imgh, imgw, CV_32FC1);
-	shadow += 3;
 	//glReadBuffer(GL_FRONT);
 	glReadPixels(0, 0, imgw, imgh, GL_DEPTH_COMPONENT, GL_FLOAT, shadow.data);
-
+	{ // size 1 dilation filter to reduce shadow acne
+		float *prevRowHF = new float[shadow.cols]; // values on the previous row after horizontal filtering
+		float *curRow = shadow.ptr<float>(0), *prevRow; // current and previous row of the image, respectively
+		float prevVal = curRow[0]; // value of the pixel to the left before filtering
+		for (int j=1; j<shadow.cols-1; j++) {
+			prevRowHF[j] = curRow[j];
+			if (curRow[j-1] < prevRowHF[j]) prevRowHF[j] = curRow[j-1];
+			if (curRow[j+1] < prevRowHF[j]) prevRowHF[j] = curRow[j+1];
+			curRow[j] = prevRowHF[j];
+		}
+		for (int i=1; i<shadow.rows; i++) {
+			prevRow = curRow;
+			curRow = shadow.ptr<float>(i);
+			float prevVal = curRow[0];
+			for (int j=1; j<shadow.cols-1; j++) {
+				float val = curRow[j];
+				if (prevVal > curRow[j]) curRow[j] = prevVal;
+				if (curRow[j+1] > curRow[j]) curRow[j] = curRow[j+1];
+				float valHF = curRow[j];
+				if (prevRowHF[j] > curRow[j]) curRow[j] = prevRowHF[j];
+				if (curRow[j] > prevRow[j]) prevRow[j] = curRow[j];
+				prevRowHF[j] = valHF;
+				prevVal = val;
+			}
+		}
+		delete prevRowHF;
+	}
 /*
 	GLuint shadowbuffer;
 	glGenBuffers(1, &shadowbuffer);
