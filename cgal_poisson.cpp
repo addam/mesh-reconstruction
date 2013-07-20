@@ -35,9 +35,9 @@ typedef Kernel::Vector_3 Vector;
 typedef CGAL::Point_with_normal_3<Kernel> Point_with_normal;
 typedef Kernel::Sphere_3 Sphere;
 typedef std::vector<Point_with_normal> PointList;
-typedef CGAL::Polyhedron_3<Kernel> Polyhedron;
 typedef CGAL::Poisson_reconstruction_function<Kernel> Poisson_reconstruction_function;
 typedef CGAL::Surface_mesh_default_triangulation_3 STr;
+typedef STr::Cell Cell;
 typedef CGAL::Surface_mesh_complex_2_in_triangulation_3<STr> C2t3;
 typedef CGAL::Implicit_surface_3<Kernel, Poisson_reconstruction_function> Surface_3;
 
@@ -100,35 +100,37 @@ Mesh poissonSurface(const Mat ipoints, const Mat normals)
     // Generates surface mesh with manifold option
     STr tr; // 3D Delaunay triangulation for surface mesh generation
     C2t3 c2t3(tr); // 2D complex in 3D Delaunay triangulation
-    CGAL::make_surface_mesh(c2t3,                                 // reconstructed mesh
-                            surface,                              // implicit surface
-                            criteria,                             // meshing criteria
-                            CGAL::Manifold_with_boundary_tag());  // require manifold mesh
+    CGAL::make_surface_mesh(c2t3,                       // reconstructed mesh
+                            surface,                    // implicit surface
+                            criteria,                   // meshing criteria
+                            CGAL::Non_manifold_tag());  // do not require manifold mesh
 
     assert(tr.number_of_vertices() > 0);
-
-    Polyhedron output_mesh;
-    CGAL::output_surface_facets_to_polyhedron(c2t3, output_mesh);
     
-    std::map<Polyhedron::Point_3, int> vertexIndices;
-    Mat vertices(output_mesh.size_of_vertices(), 4, CV_32FC1), faces(output_mesh.size_of_facets(), 3, CV_32SC1);
+
+    std::map<Point, int> vertexIndices;
+    Mat vertices(tr.number_of_vertices(), 4, CV_32FC1), faces(c2t3.number_of_facets(), 3, CV_32SC1);
 #ifdef TEST_BUILD
     printf("%i vertices, %i facets. Converting...\n", vertices.rows, faces.rows);
 #endif
-    {int i=0; for (Polyhedron::Vertex_iterator it=output_mesh.vertices_begin(); it!=output_mesh.vertices_end(); it++, i++) {
-			float *vertex = vertices.ptr<float>(i);
-			Polyhedron::Point_3 p = it->point();
-			vertex[0] = p.x(); vertex[1] = p.y(); vertex[2] = p.z();
-			vertex[3] = 1;
-			vertexIndices[p] = i;
-		}}
-    {int i=0; for (Polyhedron::Facet_iterator it=output_mesh.facets_begin(); it!=output_mesh.facets_end(); it++, i++) {
-			int32_t *face = faces.ptr<int32_t>(i);
-			assert(it->is_triangle());
-			Polyhedron::Halfedge_handle edge = it->halfedge();
-			for (char j=0; j<3; j++) {
-				face[j] = vertexIndices[edge->vertex()->point()];
-				edge = edge->next();
+    {int i=0;
+	    for (C2t3::Vertex_iterator it=c2t3.vertices_begin(); it!=c2t3.vertices_end(); it++, i++) {
+				float *vertex = vertices.ptr<float>(i);
+				Point p = it->point();
+				vertex[0] = p.x(); vertex[1] = p.y(); vertex[2] = p.z();
+				vertex[3] = 1;
+				vertexIndices[p] = i;
+			}
+			vertices.resize(i);
+		}
+    {int i=0; for (C2t3::Facet_iterator it=c2t3.facets_begin(); it!=c2t3.facets_end(); it++, i++) {
+			Cell cell = *it->first;
+			int vertex_excluded = it->second;
+			int32_t* outfacet = faces.ptr<int32_t>(i);
+			// a little magic so that face normals are oriented outside
+			char sign = (function(cell.vertex(vertex_excluded)->point()) > 0) ? 1 : 2; // 2 = -1 (mod 3)
+			for (char j = vertex_excluded + 1; j < vertex_excluded + 4; j++){
+				outfacet[(sign*j)%3] = vertexIndices[cell.vertex(j%4)->point()];
 			}
 		}}
 

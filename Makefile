@@ -50,7 +50,7 @@ test_alpha_shapes: alpha_shapes.cpp
 	/usr/bin/time -f '%e seconds, %M kBytes' ./test_alpha_shapes
 
 test_cgal_poisson: cgal_poisson.cpp
-	${CXX} ${CXXFLAGS} cgal_poisson.cpp -frounding-math -O2 ${cgal_LIBS} -lopencv_core -DTEST_BUILD -o test_cgal_poisson
+	${CXX} ${CXXFLAGS} cgal_poisson.cpp -frounding-math -O2 ${cgal_LIBS} -lopencv_core -I/usr/include/eigen3 -DTEST_BUILD -o test_cgal_poisson
 	/usr/bin/time -f '%e seconds, %M kBytes' ./test_cgal_poisson
 
 test_pcl: pcl.cpp
