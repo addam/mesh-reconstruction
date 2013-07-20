@@ -125,6 +125,7 @@ void Heuristic::filterPoints(Mat& points, Mat& normals)
 	std::vector<int> order(pointCount, -1);
 	cv::sortIdx(density, order, cv::SORT_DESCENDING);
 	int writeIndex = 0;
+	// TODO: incorrect. Should be a max-heap.
 	for (int i=0; i<pointCount; i++) {
 		int ord = order[i];
 		if (densityNew[ord] < densityLimit)
@@ -306,7 +307,7 @@ LabelledCameras filterCameras(Mat viewer, Mat depth, const std::vector<Mat> came
 	return filtered;
 }
 
-const CameraLabel chooseMain(std::map<unsigned, float> &weights, LabelledCameras filteredCameras, float *outWeightSum)
+const CameraLabel chooseMain(std::map<unsigned, float> &weights, LabelledCameras filteredCameras, float *outWeightSum, float boostFactor)
 {
 	assert (filteredCameras.size() > 0);
 	std::vector<float> weightSum(filteredCameras.size()+1, 0.);
@@ -316,7 +317,7 @@ const CameraLabel chooseMain(std::map<unsigned, float> &weights, LabelledCameras
 		float weight = label.cosFromViewer/pow2(label.distance);
 		*outWeightSum += weight; // use unmodified
 		if (weights.count(compact(label.index, label.index)))
-			weight *= 5 * filteredCameras.size();
+			weight += weight * boostFactor * filteredCameras.size();
 		weightSum[i+1] = weightSum[i] + weight;
 	}}
 	float choice = cv::randu<float>() * weightSum.back();
@@ -325,7 +326,7 @@ const CameraLabel chooseMain(std::map<unsigned, float> &weights, LabelledCameras
 	return filteredCameras[index].first;
 }
 
-const CameraLabel chooseSide(std::map<unsigned, float> &weights, CameraLabel mainCamera, float threshold, LabelledCameras filteredCameras)
+const CameraLabel chooseSide(std::map<unsigned, float> &weights, CameraLabel mainCamera, float threshold, float boostFactor, LabelledCameras filteredCameras)
 {
 	assert (filteredCameras.size() > 1); // mainCamera is surely in filteredCameras and we cannot pick it
 	std::vector<float> weightSum(filteredCameras.size(), 0.);
@@ -341,7 +342,7 @@ const CameraLabel chooseSide(std::map<unsigned, float> &weights, CameraLabel mai
 		actualWeightSum += weight;
 		unsigned compactIndex = compact(mainCamera.index, label.index);
 		if (weights.count(compactIndex) && weights[compactIndex] >= 1)
-			weight *= filteredCameras.size(); // TODO: try *= filteredCameras.size() instead
+			weight += weight * boostFactor * filteredCameras.size();
 		weightSum[i+1] = weightSum[i] + weight;
 		labels.push_back(it->first);
 		i++;
@@ -380,7 +381,7 @@ void Heuristic::chooseCameras(const Mesh mesh, const std::vector<Mat> cameras)
 	      average = totalArea / mesh.faces.rows;
 	
 	// TODO: guess from the sequence
-	float samplingResolution = sqrt(cameras.size())*0.1*config->width*config->height/totalArea; // units: pixels per scene-space area
+	float samplingResolution = sqrt(cameras.size())*config->width*config->height/(totalArea * config->cameraThreshold); // units: pixels per scene-space area
 	std::vector<bool> used(false, mesh.faces.rows);
 	cv::RNG random = cv::theRNG();
 	Render *render = spawnRender(*this);
@@ -398,8 +399,8 @@ void Heuristic::chooseCameras(const Mesh mesh, const std::vector<Mat> cameras)
 		LabelledCameras filteredCameras = filterCameras(viewer, depth, cameras);
 		if (filteredCameras.size() >= 2) {
 			float mainWeightSum;
-			CameraLabel mainCamera = chooseMain(weights, filteredCameras, &mainWeightSum);
-			CameraLabel sideCamera = chooseSide(weights, mainCamera, shotCount * mainWeightSum/samplingResolution, filteredCameras);
+			CameraLabel mainCamera = chooseMain(weights, filteredCameras, &mainWeightSum, config->cameraThreshold);
+			CameraLabel sideCamera = chooseSide(weights, mainCamera, shotCount * mainWeightSum/samplingResolution, config->cameraThreshold/10, filteredCameras);
 			if (sideCamera.index == dummyLabel.index) {
 				//printf("Missed (side).\n");
 				continue;

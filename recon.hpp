@@ -74,6 +74,7 @@ class Configuration {
 		const int frameCount();
 		int iterationCount;
 		char verbosity;
+		float cameraThreshold; // thresholding value for camera selection
 		float sceneResolution; // a parameter to modify the density of the resulting mesh
 		float scalingFactor; // downsample each frame
 		unsigned skipFrames; // skip input frames, for testing

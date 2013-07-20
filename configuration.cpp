@@ -18,13 +18,15 @@ Configuration::Configuration(int argc, char** argv)
 	
 	iterationCount = 2;
 	sceneResolution = 1;
-	scalingFactor = 1;
+	cameraThreshold = 10.;
+	scalingFactor = 1.;
 	skipFrames = 1;
 	while (1) {
 		int option_index = 0;
 		static struct option long_options[] = {
 			{"input",   required_argument, 0,  'i' },
 			{"output",  required_argument, 0,  'o' },
+			{"camera-threshold", required_argument, 0,  'c' },
 			{"estimate-exposure", no_argument, 0,  'e' },
 			{"iterations", required_argument, 0, 'n' },
 			{"scale", required_argument, 0, 's' },
@@ -35,7 +37,7 @@ Configuration::Configuration(int argc, char** argv)
 			{0,         0,                 0,  0 }
 		};
 		
-		char c = getopt_long(argc, argv, "i:o:en:s:k:vVh", long_options, &option_index);
+		char c = getopt_long(argc, argv, "i:o:c:en:s:k:vVh", long_options, &option_index);
 		if (c == -1)
 			break;
 		
@@ -48,6 +50,10 @@ Configuration::Configuration(int argc, char** argv)
 				outFileName = optarg;
 				break;
 		
+			case 'c':
+				cameraThreshold = atof(optarg);
+				break;
+			
 			case 'e':
 				doEstimateExposure = true;
 				break;
@@ -77,6 +83,7 @@ Configuration::Configuration(int argc, char** argv)
 			default:
 				printf("Usage: recon [OPTIONS] [INPUT_FILE]\n");
 				printf("Reconstructs dense geometry from given YAML scene calibration and video\n\n");
+				printf("  -c, --camera-threshold=f  use given threshold for camera selection (default: 10)\n");
 				printf("  -e, --estimate-exposure   try to normalize exposure over time (default: false)\n");
 				printf("  -h, --help                print this message and exit\n");
 				printf("  -i, --input               input configuration file name (.yaml, usually exported from Blender; default: output.obj)\n");
@@ -84,8 +91,8 @@ Configuration::Configuration(int argc, char** argv)
 				printf("  -n, --iterations=i        maximal iteration count of surface reconstruction (default: 2)\n");
 				printf("  -o, --output              output mesh file name (.obj)\n");
 				printf("  -s, --scale=f             downsample the input video by a given factor (default: 1.0)\n");
-				printf("  -v, --verbose             print out current task during computation\n");
-				printf("  -V                        print out what comes to mind, and save all images at hand\n");
+				printf("  -v, --verbose             print current task and summarize its results during computation\n");
+				printf("  -V, --hyper-verbose       print out what comes to mind, and save all images at hand\n");
 				exit(0);
 				break;
 		}
