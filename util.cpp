@@ -297,21 +297,23 @@ Mat compare(const Mat prev, const Mat next)
 	return diffPyramid[0];
 }
 
-Mat mixBackground(const Mat image, const Mat background, const Mat depth)
+Mat mixBackground(const Mat image, const Mat background, Mat &depth)
 // return image.first_channel if (image.second_channel > 0 and depth < backgroundDepth) else background
+// set depth = backgroundDepth in the masked out areas
 {
 	assert(image.channels() == 3);
 	assert(background.channels() == 1);
 	Mat result(depth.rows, depth.cols, CV_8UC1);
 	for (int i=0; i<image.rows; i++) {
 		const uchar *srcrow = image.ptr<const uchar>(i),
-		            *bgrow = background.ptr<const uchar>(i),
-		            *depthrow = depth.ptr<const uchar>(i);
+		            *bgrow = background.ptr<const uchar>(i);
+		float *depthrow = depth.ptr<float>(i);
 		uchar *dstrow = result.ptr<uchar>(i);
 		for (int j=0; j<image.cols; j++) {
 			// black (0,0,0) in the image denotes invalid pixels; valid black would be (0,0,1)
 			if (depthrow[j] == backgroundDepth || !srcrow[3*j+1]) {
 				dstrow[j] = bgrow[j];
+				depthrow[j] = backgroundDepth;
 			} else {
 				dstrow[j] = srcrow[3*j];
 			}

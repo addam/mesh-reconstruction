@@ -52,7 +52,7 @@ Mat dehomogenize(Mat points);
 Mat dehomogenize2D(const Mat points);
 float sampleImage(const Mat image, float radius, const float x, const float y, char c);
 template <class T> T sampleImage(const Mat image, const float x, const float y); // linear sampling
-Mat mixBackground(const Mat image, const Mat background, const Mat depth);
+Mat mixBackground(const Mat image, const Mat background, Mat &depth);
 Mat flowRemap(const Mat flow, const Mat image);
 void saveImage(const Mat image, const char *fileName);
 void saveImage(const Mat image, const char *fileName, bool normalize);
