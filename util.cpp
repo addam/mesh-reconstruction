@@ -3,6 +3,10 @@
 #include <opencv2/imgproc/imgproc.hpp>
 #include <fstream>
 #include <vector>
+#include <cstring>
+
+//debug
+#include <iostream>
 
 #include "recon.hpp"
 
@@ -444,6 +448,52 @@ void saveImage(const Mat image, const char *fileName, bool normalize)
 	} else {
 		cv::imwrite(fileName, image);
 	}
+}
+
+Mesh readMesh(const char *fileName)
+{
+	std::ifstream is(fileName);
+	std::string line;
+	int vertexCount=0, faceCount=0;
+	while (is.good()) {
+		std::getline(is, line);
+		if (line[0] == 'v')
+			vertexCount += 1;
+		else if (line[0] == 'f')
+			faceCount += 1;
+	}
+	printf("%i vertices, %i faces.\n", vertexCount, faceCount);
+	Mesh mesh(Mat(vertexCount, 4, CV_32FC1), Mat(faceCount, 3, CV_32SC1));
+	Mat vertices = mesh.vertices, faces = mesh.faces;
+	is.clear();
+	is.seekg(std::ios_base::beg); //rewind
+	is.close();
+	is.open(fileName);
+	int vi=0, fi=0;
+	while (is.good()) {
+		std::getline(is, line);
+		if (line[0] == 'v') {
+			float *vertex = vertices.ptr<float>(vi);
+			// I amsorry for the scanf, but C++ seems to have a bit too talkative tools for this
+			sscanf(line.c_str(), "v %f %f %f", &vertex[0], &vertex[1], &vertex[2]);
+			vertex[3] = 1.0;
+			vi ++;
+		} else if (line[0] == 'f') {
+			// TODO: instead of ignoring polygons, split them as a fan
+			int iface[3]; // 32-bit compatibility... I hope
+			sscanf(line.c_str(), "f %i %i %i", &iface[0], &iface[1], &iface[2]);
+			int32_t *face = faces.ptr<int32_t>(fi);
+			face[0] = iface[0]-1; face[1] = iface[1]-1; face[2] = iface[2]-1;
+			fi ++;
+		}
+	}
+	is.close();
+	assert(vi == vertexCount); assert(fi == faceCount);
+	//printf("trying to write...\n");
+	//DEBUG
+	//saveMesh(mesh, "inputMesh.obj");
+	//printf("read initial mesh.\n");
+	return mesh;
 }
 
 void saveMesh(const Mesh mesh, const char *fileName)

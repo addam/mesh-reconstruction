@@ -369,9 +369,10 @@ const CameraLabel chooseSide(std::map<unsigned, float> &weights, CameraLabel mai
 	}
 }
 
-void Heuristic::chooseCameras(const Mesh mesh, const std::vector<Mat> cameras)
+int Heuristic::chooseCameras(const Mesh mesh, const std::vector<Mat> cameras)
 {
 	chosenCameras.clear();
+	int cameraCount = 0;
 	std::vector<float> areaSum(mesh.faces.rows+1, 0.);
 	for (int i=0; i<mesh.faces.rows; i++) {
 		const int32_t *vertIdx = mesh.faces.ptr<int32_t>(i);
@@ -405,6 +406,7 @@ void Heuristic::chooseCameras(const Mesh mesh, const std::vector<Mat> cameras)
 				//printf("Missed (side).\n");
 				continue;
 			}
+			cameraCount += 1;
 			int positionMain = myFind(chosenCameras, mainCamera.index);
 			if (positionMain == -1) {
 				chosenCameras.push_back(numberedVector(mainCamera.index, std::vector<int>(1, sideCamera.index)));
@@ -417,6 +419,7 @@ void Heuristic::chooseCameras(const Mesh mesh, const std::vector<Mat> cameras)
 	}
 	delete render;
 	std::sort(chosenCameras.begin(), chosenCameras.end());
+	return cameraCount;
 }
 /*
 void Heuristic::chooseCameras(const Mat points, const Mat indices)
@@ -472,14 +475,21 @@ int Heuristic::nextSide(int imain)
 	else
 		return chosenCameras[mainIdx].second[sideIdx];
 }
-Mesh Heuristic::tesselate(const Mat points, const Mat normals)
+Mesh Heuristic::tessellate(const Mat points, const Mat normals)
 {
-	//TODO: add ifdefs for CGAL and PCL (and others..?)
 	if (iteration <= 1) {
-		float alpha;
-		Mat faces = alphaShapeFaces(points, &alpha);
-		alphaVals.push_back(alpha);
-		return Mesh(points, faces);
+		if (config->inMeshFile) {
+			Mesh result = readMesh(config->inMeshFile);
+			// TODO: estimate some alpha value from the geometry
+			alphaVals.push_back(1);
+			return result;
+			assert(false);
+		} else {
+			float alpha;
+			Mat faces = alphaShapeFaces(points, &alpha);
+			alphaVals.push_back(alpha);
+			return Mesh(points, faces);
+		}
 	} else {
 		Mesh result = poissonSurface(points, normals);
 		alphaVals.push_back(alphaVals.back() / 2);

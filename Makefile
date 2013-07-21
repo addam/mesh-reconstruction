@@ -16,7 +16,7 @@ OBJS = recon.o flow.o alpha_shapes.o heuristic.o configuration.o
 
 all: recon
 
-recon: recon.o alpha_shapes.o render_${SYSTEM_OPENGL}.o heuristic.o configuration.o util.o flow.o ${POISSON_LIBRARY}_poisson.o
+recon: Makefile recon.o alpha_shapes.o render_${SYSTEM_OPENGL}.o heuristic.o configuration.o util.o flow.o ${POISSON_LIBRARY}_poisson.o
 	${CXX} ${CXXFLAGS} recon.hpp recon.o alpha_shapes.o render_${SYSTEM_OPENGL}.o heuristic.o configuration.o util.o flow.o ${POISSON_LIBRARY}_poisson.o ${LIBS} -o recon
 
 recon.o: recon.cpp
@@ -71,7 +71,7 @@ clean:
 	rm recon *.o shaders.hpp
 
 clean_images:
-	rm depth-frame*.png
-	rm flow-frame*from*.png
-	rm frame*.png
-	rm project-frame*from*.png
+	rm depth-frame*.png || true
+	rm flow-frame*from*.png || true
+	rm frame*.png || true
+	rm project-frame*from*.png || true

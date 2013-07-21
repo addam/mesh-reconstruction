@@ -19,21 +19,20 @@ int main(int argc, char ** argv) {
 		//sestav z nich alphashape
 		float alpha;
 		logprint(config, 1, "Meshing...\n");
-		Mesh mesh = hint.tesselate(points, normals);
+		Mesh mesh = hint.tessellate(points, normals);
 		logprint(config, 2, " %i faces.\n", mesh.faces.rows);
 		if (config.verbosity >= 3)
 			saveMesh(mesh, "recon_orig.obj");
 		render->loadMesh(mesh);
 
 		logprint(config, 1, "Choosing cameras...\n");
-		hint.chooseCameras(mesh, config.allCameras());
+		int cameraCount = hint.chooseCameras(mesh, config.allCameras());
+		if (cameraCount == 0) {
+			printf(" Heuristic has chosen no cameras, which is an error. However, we have got nothing more to do.\n");
+			exit(1);
+		}
 		if (config.verbosity >= 2) {
-			int fa = hint.beginMain();
-			if (fa == Heuristic::sentinel) { // FIXME check always
-				printf(" Heuristic has chosen no cameras, which is an error. However, we have got nothing more to do.\n");
-				exit(1);
-			}
-			for (; fa != Heuristic::sentinel; fa = hint.nextMain()) {
+			for (int fa = hint.beginMain(); fa != Heuristic::sentinel; fa = hint.nextMain()) {
 				printf("  main camera %i, side cameras ", fa);
 				for (int fb = hint.beginSide(fa); fb != Heuristic::sentinel; fb = hint.nextSide(fa)) {
 					printf("%i, ", fb);
@@ -72,6 +71,9 @@ int main(int argc, char ** argv) {
 					char filename[300];
 					//nahrubo ulož výsledek
 					snprintf(filename, 300, "project-frame%ifrom%i.png", fa, fb);
+					Mat mask;
+					cv::compare(depth, backgroundDepth, mask, cv::CMP_EQ);
+					projectedImage.setTo(0, mask);
 					saveImage(projectedImage, filename);
 					snprintf(filename, 300, "flow-frame%ifrom%i.png", fa, fb);
 					saveImage(flow, filename, true);
@@ -102,7 +104,7 @@ int main(int argc, char ** argv) {
 	if (config.verbosity >= 3)
 		saveMesh(Mesh(points, Mat()), "filteredpoints.obj");
 	logprint(config, 1, "Calculating final mesh...\n");
-	Mesh mesh = hint.tesselate(points, normals);
+	Mesh mesh = hint.tessellate(points, normals);
 	logprint(config, 2, " %i faces\n", mesh.faces.rows);
 	saveMesh(mesh, config.outFileName);
 	logprint(config, 2, " Saved, done.\n");

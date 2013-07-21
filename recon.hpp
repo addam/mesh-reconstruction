@@ -56,6 +56,7 @@ Mat mixBackground(const Mat image, const Mat background, Mat &depth);
 Mat flowRemap(const Mat flow, const Mat image);
 void saveImage(const Mat image, const char *fileName);
 void saveImage(const Mat image, const char *fileName, bool normalize);
+Mesh readMesh(const char *fileName);
 void saveMesh(const Mesh, const char *fileName);
 Mat imageGradient(const Mat image);
 void addChannel(MatList dest, const Mat src);
@@ -80,6 +81,7 @@ class Configuration {
 		unsigned skipFrames; // skip input frames, for testing
 		int width, height;
 		char *outFileName;
+		char *inMeshFile; // filename to read initial mesh from
 	protected:
 		const Mat reprojectPoints(int frame);
 		void estimateExposure();
@@ -109,14 +111,14 @@ typedef std::pair <int, std::vector <int> > numberedVector;
 class Heuristic {
 	public:
 		Heuristic(Configuration *iconfig);
-		void chooseCameras(const Mesh mesh, const std::vector<Mat> cameras);
+		int chooseCameras(const Mesh mesh, const std::vector<Mat> cameras);
 		bool notHappy(const Mat points);
 		int beginMain(); // initialize and return frame number for first main camera
 		int nextMain(); // return frame number for next main camera
 		int beginSide(int mainNumber); // initialize and return frame number for first side camera
 		int nextSide(int mainNumber); // return frame number for next side camera
 		void filterPoints(Mat& points, Mat& normals);
-		Mesh tesselate(const Mat points, const Mat normals);
+		Mesh tessellate(const Mat points, const Mat normals);
 		cv::Size renderSize();
 		static const int sentinel = -1;
 	protected:

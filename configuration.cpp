@@ -12,6 +12,7 @@ using namespace cv;
 Configuration::Configuration(int argc, char** argv)
 {
 	char *inFileName=NULL;
+	inMeshFile=NULL;
 	outFileName = (char*)"output.obj";
 	verbosity = 0;
 	doEstimateExposure = false;
@@ -25,6 +26,7 @@ Configuration::Configuration(int argc, char** argv)
 		int option_index = 0;
 		static struct option long_options[] = {
 			{"input",   required_argument, 0,  'i' },
+			{"initial-mesh",   required_argument, 0,  'm' },
 			{"output",  required_argument, 0,  'o' },
 			{"camera-threshold", required_argument, 0,  'c' },
 			{"estimate-exposure", no_argument, 0,  'e' },
@@ -37,13 +39,17 @@ Configuration::Configuration(int argc, char** argv)
 			{0,         0,                 0,  0 }
 		};
 		
-		char c = getopt_long(argc, argv, "i:o:c:en:s:k:vVh", long_options, &option_index);
+		char c = getopt_long(argc, argv, "i:m:o:c:en:s:k:vVh", long_options, &option_index);
 		if (c == -1)
 			break;
 		
 		switch (c) {
 			case 'i':
 				inFileName = optarg;
+				break;
+			
+			case 'm':
+				inMeshFile = optarg;
 				break;
 			
 			case 'o':
@@ -71,7 +77,7 @@ Configuration::Configuration(int argc, char** argv)
 				break;
 			
 			case 'v':
-				verbosity = 2;
+				if (verbosity < 2) verbosity = 2;
 				break;
 			
 			case 'V':
@@ -86,10 +92,11 @@ Configuration::Configuration(int argc, char** argv)
 				printf("  -c, --camera-threshold=f  use given threshold for camera selection (default: 10)\n");
 				printf("  -e, --estimate-exposure   try to normalize exposure over time (default: false)\n");
 				printf("  -h, --help                print this message and exit\n");
-				printf("  -i, --input               input configuration file name (.yaml, usually exported from Blender; default: output.obj)\n");
+				printf("  -i, --input=s             input configuration file name (.yaml, usually exported from Blender; default: output.obj)\n");
 				printf("  -k, --skip-frames=i       use only every n-th frame of the sequence (default: 1)\n");
+				printf("  -m, --input-mesh=s        load initial scene estimate from given file (.obj, by default not set)\n");
 				printf("  -n, --iterations=i        maximal iteration count of surface reconstruction (default: 2)\n");
-				printf("  -o, --output              output mesh file name (.obj)\n");
+				printf("  -o, --output=s            output mesh file name (.obj)\n");
 				printf("  -s, --scale=f             downsample the input video by a given factor (default: 1.0)\n");
 				printf("  -v, --verbose             print current task and summarize its results during computation\n");
 				printf("  -V, --hyper-verbose       print out what comes to mind, and save all images at hand\n");
@@ -125,8 +132,6 @@ Configuration::Configuration(int argc, char** argv)
 		centerX /= scalingFactor;
 		centerY /= scalingFactor;
 	}
-	centerX += 0.5; // conversion from grid to grid, seems to help
-	centerY -= 0.5;
 	nodeClip["distortion"] >> lensDistortion;
 	
 	VideoCapture clip(clipPath);
