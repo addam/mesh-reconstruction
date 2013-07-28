@@ -57,14 +57,23 @@ Mat alphaShapeFaces(Mat points, float *alpha)
   Alpha_shape_3 as(lp.begin(),lp.end());
 
   Alpha_iterator opt = as.find_optimal_alpha(1);
+  #ifdef TEST_BUILD
+  if (*alpha > 0)
+	  as.set_alpha(*alpha);
+	else
+		as.set_alpha(*opt);
+	#else
   as.set_alpha(*opt);
   assert(as.number_of_solid_components() == 1);
+	#endif
   if (alpha != NULL)
 	  *alpha = *opt;
 
   std::vector<Facet> facets;
   as.get_alpha_shape_facets(back_inserter(facets), Alpha_shape_3::REGULAR);
-  //as.get_alpha_shape_facets(back_inserter(facets), Alpha_shape_3::SINGULAR);
+  #ifdef TEST_BUILD
+  as.get_alpha_shape_facets(back_inserter(facets), Alpha_shape_3::SINGULAR);
+  #endif
   Mat result(facets.size(), 3, CV_32SC1);
   for (int i=0; i < facets.size(); i++) {
 		Cell cell = *(facets[i].first);
@@ -85,12 +94,15 @@ Mat alphaShapeFaces(Mat points)
 }
 
 #ifdef TEST_BUILD
-int main()
+int main(int argc, char**argv)
 {
 	//read input
-	//std::ifstream is("shit/bunny_1000");
-	std::ifstream is("shit/stanford_dragon_big");
-	std::ofstream os("shit/dragon_alpha.obj");
+	std::ifstream is("shit/bunny_1000");
+	//std::ifstream is("shit/stanford_dragon_big");
+	std::ofstream os("shit/bunny_alpha.obj");
+	float alpha = 0;
+	if (argc>1)
+		alpha = atof(argv[1]);
 	int n;
 	is >> n;
 	std::cout << "Reading " << n << " points..." << std::endl;
@@ -98,15 +110,18 @@ int main()
 	cv::Point3f point;
 	for(int i=0; i < n; i ++) {
 		is >> point.x >> point.y >> point.z;
+		if (point.x < -0.02)
+			point.x -= 0.12;
+			
 		points.push_back(point);
-		const float* row = points.ptr<float>(i);
-		os << "v " << row[0] << ' ' << row[1] << ' ' << row[2] << std::endl;
+		const float* row = points.ptr<float>();
+		os << "v " << point.x << ' ' << point.y << ' ' << point.z << std::endl;
 	}
 	is.close();
 	points = points.reshape(1);
 	std::cout << points.rows << " points, " << points.cols << " dimensions" << std::endl;
 	std::cout << "Calculating alpha shape..." << std::endl;
-	Mat alphaShape = alphaShapeIndices(points);
+	Mat alphaShape = alphaShapeFaces(points, &alpha);
 	for (int i=0; i < alphaShape.rows; i++){
 		const int32_t* row = alphaShape.ptr<int32_t>(i);
 		os << "f " << row[0]+1 << ' ' << row[1]+1 << ' ' << row[2]+1 << std::endl;

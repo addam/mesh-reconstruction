@@ -337,8 +337,8 @@ const CameraLabel chooseSide(std::map<unsigned, float> &weights, CameraLabel mai
 		CameraLabel label = it->first;
 		if (label.index == mainCamera.index)
 			continue;
-		float parallax = sqrt(pow2(label.viewX - mainCamera.viewX) + pow2(label.viewY - mainCamera.viewY)) / focal;
-		float weight = label.cosFromViewer * parallax / pow2(label.distance);
+		float parallaxSqr = (pow2(label.viewX - mainCamera.viewX) + pow2(label.viewY - mainCamera.viewY)) / focal;
+		float weight = label.cosFromViewer * parallaxSqr / pow2(label.distance);
 		actualWeightSum += weight;
 		unsigned compactIndex = compact(mainCamera.index, label.index);
 		if (weights.count(compactIndex) && weights[compactIndex] >= 1)

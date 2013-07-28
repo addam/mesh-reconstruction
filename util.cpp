@@ -149,7 +149,7 @@ DensityPoint triangulatePixel(float x, float y, const Mat measuredPoints, const 
 }
 
 Mat triangulatePixels(const MatList flows, const Mat mainCamera, const MatList cameras, const Mat depth)
-//FIXME: needs to have access to more details about the camera: to distortion coefficients and principal point
+//FIXME: needs to know the camera's principal point
 {
 	int width = depth.cols, height = depth.rows;
 	Mat points(depth.rows*depth.cols, 4+3, CV_32FC1); // point \in P^3, normal (scaled by probability) \in R^3
@@ -215,7 +215,7 @@ Mat triangulatePixels(const MatList flows, const Mat mainCamera, const MatList c
 		}
 	}
 	points.resize(pixelId);
-	const int radius = 3;
+	const int radius = 10;
 	std::vector<Mat> cameraCenters(1, extractCameraCenter(mainCamera));
 	for (MatList::const_iterator camera=cameras.begin(); camera!=cameras.end(); camera++) {
 		cameraCenters.push_back(extractCameraCenter(*camera));
@@ -462,7 +462,6 @@ Mesh readMesh(const char *fileName)
 		else if (line[0] == 'f')
 			faceCount += 1;
 	}
-	printf("%i vertices, %i faces.\n", vertexCount, faceCount);
 	Mesh mesh(Mat(vertexCount, 4, CV_32FC1), Mat(faceCount, 3, CV_32SC1));
 	Mat vertices = mesh.vertices, faces = mesh.faces;
 	is.clear();

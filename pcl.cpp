@@ -284,7 +284,7 @@ Mat estimatedNormals(Mat points)
 int main(int argc, char**argv)
 {
 	//read input
-	std::ifstream is("shit/bunny_1000");
+	std::ifstream is("/home/addam/src/recon/Alpha_shapes_3/data/bunny_5000");
 	//std::ifstream is("shit/stanford_dragon_big");
 	std::ofstream os("shit/bunny_poisson.obj");
   os.precision (5);
@@ -308,6 +308,22 @@ int main(int argc, char**argv)
 	}
 	std::cout << "Calculating normals..." << std::endl;
 	Mat normals = estimatedNormals(points);
+	/*int writeIndex = 0;
+	for (int i=0; i<n; i++) {
+		float x = points.at<float>(i, 1);
+		if (writeIndex < i && (x < -0.05 || x > 0.01)) {
+			points.row(i).copyTo(points.row(writeIndex));
+			normals.row(i).copyTo(normals.row(writeIndex));
+			writeIndex ++;
+		}
+	}
+	points.resize(writeIndex);
+	normals.resize(writeIndex);*/
+	for (int i=0; i<points.rows; i++) {
+		if (points.at<float>(i, 0) < -0.02) {
+			points.at<float>(i, 0) -= 0.12;
+		}
+	}
 	int degree = 4;
 	if (argc > 1)
 		degree = atoi(argv[1]);
