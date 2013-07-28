@@ -5,7 +5,7 @@ POISSON_LIBRARY = pcl
 CXX = g++
 CXXFLAGS = -g
 
-opencv_LIBS = -lopencv_core -lopencv_calib3d -lopencv_video -lopencv_highgui -lopencv_imgproc -lopencv_flann
+opencv_LIBS = -lopencv_core -lopencv_calib3d -lopencv_video -lopencv_highgui -lopencv_imgproc -lopencv_flann -lopencv_legacy
 cgal_LIBS = -lCGAL -lboost_thread -lgmp -lmpfr
 pcl_LIBS = -lpcl_common -lpcl_kdtree -lpcl_search -lpcl_surface -lpcl_features
 RENDER_glx_LIBS = -lGL -lGLEW -lopencv_highgui -lX11

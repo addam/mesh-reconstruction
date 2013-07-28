@@ -42,7 +42,7 @@ Mesh rbfSurface(const Mat points, const Mat normals);
 #endif
 
 // flow.cpp
-Mat calculateFlow(const Mat prev, const Mat next);
+Mat calculateFlow(const Mat prev, const Mat next, bool useFarneback);
 
 // util.cpp
 Mat extractCameraCenter(const Mat camera);
@@ -75,6 +75,7 @@ class Configuration {
 		const int frameCount();
 		int iterationCount;
 		char verbosity;
+		bool useFarneback; // switch between optflow algorithms by Farnebaeck and Horn&Schunck
 		float cameraThreshold; // thresholding value for camera selection
 		float sceneResolution; // a parameter to modify the density of the resulting mesh
 		float scalingFactor; // downsample each frame

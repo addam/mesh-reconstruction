@@ -65,7 +65,7 @@ int main(int argc, char ** argv) {
 			for (int fb = hint.beginSide(fa); fb != Heuristic::sentinel; fb = hint.nextSide(fa)) {
 				Mat projectedImage = render->projected(config.camera(fa), config.frame(fb), config.camera(fb));
 				projectedImage = mixBackground(projectedImage, originalImage, depth);
-				Mat flow = calculateFlow(originalImage, projectedImage);
+				Mat flow = calculateFlow(originalImage, projectedImage, config.useFarneback);
 				//mixBackground(flow, Mat::zeros(flow.rows, flow.cols, CV_32FC4), depth);
 				if (config.verbosity >= 3) {
 					char filename[300];

@@ -16,6 +16,7 @@ Configuration::Configuration(int argc, char** argv)
 	outFileName = (char*)"output.obj";
 	verbosity = 0;
 	doEstimateExposure = false;
+	useFarneback = false;
 	
 	iterationCount = 2;
 	sceneResolution = 1;
@@ -33,13 +34,14 @@ Configuration::Configuration(int argc, char** argv)
 			{"iterations", required_argument, 0, 'n' },
 			{"scale", required_argument, 0, 's' },
 			{"skip-frames", required_argument, 0, 'k' },
+			{"farneback",   no_argument, 0,  'f' },
 			{"verbose", no_argument,       0,  'v' },
 			{"hyper-verbose", no_argument,       0,  'V' },
 			{"help",    no_argument,       0,  'h' },
 			{0,         0,                 0,  0 }
 		};
 		
-		char c = getopt_long(argc, argv, "i:m:o:c:en:s:k:vVh", long_options, &option_index);
+		char c = getopt_long(argc, argv, "i:m:o:c:en:s:k:fvVh", long_options, &option_index);
 		if (c == -1)
 			break;
 		
@@ -76,6 +78,10 @@ Configuration::Configuration(int argc, char** argv)
 				skipFrames = atoi(optarg);
 				break;
 			
+			case 'f':
+				useFarneback = true;
+				break;
+			
 			case 'v':
 				if (verbosity < 2) verbosity = 2;
 				break;
@@ -91,6 +97,7 @@ Configuration::Configuration(int argc, char** argv)
 				printf("Reconstructs dense geometry from given YAML scene calibration and video\n\n");
 				printf("  -c, --camera-threshold=f  use given threshold for camera selection (default: 10)\n");
 				printf("  -e, --estimate-exposure   try to normalize exposure over time (default: false)\n");
+				printf("  -f, --farneback           use Farneback's algorithm for optical flow, intsead of Horn & Schunck's (default: false)\n");
 				printf("  -h, --help                print this message and exit\n");
 				printf("  -i, --input=s             input configuration file name (.yaml, usually exported from Blender; default: output.obj)\n");
 				printf("  -k, --skip-frames=i       use only every n-th frame of the sequence (default: 1)\n");

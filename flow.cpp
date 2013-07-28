@@ -1,5 +1,7 @@
 #include <opencv2/video/tracking.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
+#include <opencv2/legacy/compat.hpp>
+#include <opencv2/legacy/legacy.hpp>
 #include <vector>
 
 #ifdef TEST_BUILD
@@ -13,20 +15,34 @@
 #endif
 
 #ifndef TEST_BUILD
-Mat calculateFlow(Mat prev, Mat next)
+Mat calculateFlow(Mat prev, Mat next, bool use_farneback)
 {
-	double pyr_scale = 0.8, poly_sigma = (prev.rows+prev.cols)/1000.0;
-	int levels = 100, winsize = (prev.rows+prev.cols)/100, iterations = 7, poly_n = (poly_sigma<1.5?5:7), flags = 0;//cv::OPTFLOW_FARNEBACK_GAUSSIAN;
 	Mat flow;
-	cv::calcOpticalFlowFarneback(prev, next, flow, pyr_scale, levels, winsize, iterations, poly_n, poly_sigma, flags);
-	flags = cv::OPTFLOW_USE_INITIAL_FLOW | cv::OPTFLOW_FARNEBACK_GAUSSIAN;
-	pyr_scale = 0.5;
-	iterations = 50;
-	levels = 1;
-	poly_sigma = 1.3;
-	poly_n = 3;
-	winsize = 20;
-	//	cv::calcOpticalFlowFarneback(prev_gray, next_gray, flow, pyr_scale, levels, winsize, iterations, poly_n, poly_sigma, flags);
+	if (use_farneback) {
+		double pyr_scale = 0.8, poly_sigma = (prev.rows+prev.cols)/1000.0;
+		int levels = 100, winsize = (prev.rows+prev.cols)/100, iterations = 7, poly_n = (poly_sigma<1.5?5:7), flags = 0;//cv::OPTFLOW_FARNEBACK_GAUSSIAN;
+		cv::calcOpticalFlowFarneback(prev, next, flow, pyr_scale, levels, winsize, iterations, poly_n, poly_sigma, flags);
+		//flags = cv::OPTFLOW_USE_INITIAL_FLOW | cv::OPTFLOW_FARNEBACK_GAUSSIAN;
+		//pyr_scale = 0.5;
+		//iterations = 50;
+		//levels = 1;
+		//poly_sigma = 1.3;
+		//poly_n = 3;
+		//winsize = 20;
+		//cv::calcOpticalFlowFarneback(prev_gray, next_gray, flow, pyr_scale, levels, winsize, iterations, poly_n, poly_sigma, flags);
+	} else {
+		CvMat *velx = cvCreateMat(prev.rows, prev.cols, CV_32FC1), *vely = cvCreateMat(prev.rows, prev.cols, CV_32FC1);
+		flow = Mat(prev.rows, prev.cols, CV_32FC2);
+		double epsilon = 1e-10;
+		CvTermCriteria crit = {CV_TERMCRIT_ITER+CV_TERMCRIT_EPS, 300, epsilon};
+		CvMat prevm = prev, nextm = next;
+		cvCalcOpticalFlowHS(&prevm, &nextm, false, velx, vely, 1./1024, crit);
+		int fromTo[] = {0,0, 1,1};
+		Mat combi[] = {Mat(velx), Mat(vely)};
+		cv::mixChannels(combi, 2, &flow, 1, fromTo, 2);
+		cvReleaseMat(&velx);
+		cvReleaseMat(&vely);
+	}
 	Mat certanity = compare(prev, flowRemap(flow, next));
 	
 	//certanity = 1 - (1/(certanity + 1));
@@ -46,16 +62,48 @@ Mat calculateFlow(Mat prev, Mat next)
 
 #else //ifdef TEST_BUILD
 
+Mat flowRemap(Mat flow, const Mat image)
+{
+	for (int x=0; x < flow.cols; x++)
+		flow.col(x) += cv::Scalar(x, 0);
+	for (int y=0; y < flow.rows; y++)
+		flow.row(y) += cv::Scalar(0, y);
+	Mat remapped;
+	cv::remap(image, remapped, flow, Mat(), CV_INTER_CUBIC);
+	return remapped;
+}
+
+Mat calculateFlowHS(Mat prev, Mat next, int iterations, double smoothness)
+{
+	CvMat *velx = cvCreateMat(prev.rows, prev.cols, CV_32FC1), *vely = cvCreateMat(prev.rows, prev.cols, CV_32FC1);
+	Mat flow(prev.rows, prev.cols, CV_32FC2);
+	CvMat *prev_gray = cvCreateMat(prev.rows, prev.cols, CV_8UC1), *next_gray = cvCreateMat(prev.rows, prev.cols, CV_8UC1);
+	cv::cvtColor(prev,Mat(prev_gray),CV_BGR2GRAY);
+	cv::cvtColor(next,Mat(next_gray),CV_BGR2GRAY);
+	double epsilon = 1e-10;
+	CvTermCriteria crit = {CV_TERMCRIT_ITER+CV_TERMCRIT_EPS, iterations, epsilon};
+	cvCalcOpticalFlowHS(prev_gray, next_gray, false, velx, vely, smoothness, crit);
+	cvReleaseMat(&prev_gray);
+	cvReleaseMat(&next_gray);
+	int fromTo[] = {0,0, 1,1};
+	Mat combi[] = {Mat(velx), Mat(vely)};
+	cv::mixChannels(combi, 2, &flow, 1, fromTo, 2);
+	cvReleaseMat(&velx);
+	cvReleaseMat(&vely);
+	return flow;
+}
+
 int main(int argc, char **argv)
 {
 	if (argc <= 2) {
-		printf("Usage: flow <IMAGE1> <IMAGE2> [(l|w|i|n|p|s)<NUMBER>|g<NUMBER>]...\n");
+		printf("Usage: flow <IMAGE1> <IMAGE2> [(l|w|i|n|p|s)<NUMBER>|g|h]...\n");
 		exit(0);
 	}
 	Mat prev = cv::imread(argv[1]),
 	    next = cv::imread(argv[2]);
 	double pyr_scale = 0.5, poly_sigma = 1.5;
 	int levels = 4, winsize = 20, iterations = 30, poly_n = 5, flags = 0;
+	bool use_hornschunck = false;
 	for (int i=3; i<argc; i++) {
 		switch(argv[i][0]) {
 			case 'l':
@@ -72,29 +120,33 @@ int main(int argc, char **argv)
 				poly_sigma = atof(argv[i]+1); break;
 			case 'g':
 				flags = cv::OPTFLOW_FARNEBACK_GAUSSIAN; break;
+			case 'h':
+				use_hornschunck = true; break;
 			default:
 				fprintf(stderr, "Unrecognized option: %s\n", argv[i]);
 		}
 	}
 	//printf("Calculating optflow between %s and %s.\n", argv[1], argv[2]);
-	printf("Levels: %i; winsize: %i; iterations: %i; polyexpansion size: %i; pyramid scale: %g; sigma: %g; Gaussian: %s\n", levels, winsize, iterations, poly_n, pyr_scale, poly_sigma, (flags?"TRUE":"FALSE"));
-	Mat prev_gray, next_gray, flow;
-	cv::cvtColor(prev,prev_gray,CV_BGR2GRAY);
-	cv::cvtColor(next,next_gray,CV_BGR2GRAY);
-	cv::calcOpticalFlowFarneback(prev_gray, next_gray, flow, pyr_scale, levels, winsize, iterations, poly_n, poly_sigma, flags);
-	
+	Mat flow;
+	if (use_hornschunck) {
+		printf("lambda: %g; iterations: %i;\n", poly_sigma, iterations);
+		flow = calculateFlowHS(prev, next, iterations, 1./poly_sigma);
+	} else {
+		printf("Levels: %i; winsize: %i; iterations: %i; polyexpansion size: %i; pyramid scale: %g; sigma: %g; Gaussian: %s\n", levels, winsize, iterations, poly_n, pyr_scale, poly_sigma, (flags?"TRUE":"FALSE"));
+		Mat prev_gray, next_gray;
+		cv::cvtColor(prev,prev_gray,CV_BGR2GRAY);
+		cv::cvtColor(next,next_gray,CV_BGR2GRAY);
+		cv::calcOpticalFlowFarneback(prev_gray, next_gray, flow, pyr_scale, levels, winsize, iterations, poly_n, poly_sigma, flags);
+	}
+
+	printf("Done.\n");
 	Mat mixed(flow.rows, flow.cols, CV_32FC3);
 	int fromTo[] = {0,0, 1,1, -1,2};
 	cv::mixChannels(&flow, 1, &mixed, 1, fromTo, 3);
 	mixed = mixed*10 + 127;
 	cv::imwrite("flow.png", mixed);
 	
-	for (int x=0; x < flow.cols; x++)
-		flow.col(x) += cv::Scalar(x, 0);
-	for (int y=0; y < flow.rows; y++)
-		flow.row(y) += cv::Scalar(0, y);
-	Mat remapped;
-	cv::remap(next, remapped, flow, Mat(), CV_INTER_CUBIC);
+	Mat remapped = flowRemap(flow, next);
 	cv::imwrite("remap.png", remapped);
 	cv::imwrite("diff.png", cv::abs(prev-remapped)*10);
 	printf("Diff sum: %g\n", cv::norm(cv::sum(cv::abs(prev-remapped))));
