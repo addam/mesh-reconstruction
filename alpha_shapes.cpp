@@ -1,3 +1,5 @@
+// alpha_shapes.cpp: wrapper for CGAL alpha shape calculation
+
 #include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
 #include <CGAL/Delaunay_triangulation_3.h>
 #include <CGAL/Alpha_shape_3.h>
@@ -28,11 +30,14 @@ typedef Alpha_shape_3::Cell Cell;
 typedef Gt::Point_3 Point;
 typedef Alpha_shape_3::Alpha_iterator Alpha_iterator;
 
+// return vertex indices forming all the faces of the alpha shape
+// alpha is an output parameter, its value is calculated to make the alpha shape a single component
 Mat alphaShapeFaces(Mat points, float *alpha)
-// alpha is only a side output, its original value is not used
 {
 	if (points.rows == 0 || points.cols == 0)
 		return Mat(0, 3, CV_32SC1);
+	
+	// convert points to Cartesian if necessary, and to a format suitable for CGAL
 	std::vector<Point> lp;
 	std::map<Point, int> vertex_indices;
 	lp.reserve(points.rows);
@@ -54,8 +59,10 @@ Mat alphaShapeFaces(Mat points, float *alpha)
 		assert(false);
 	}
 
+	// Calculate the alpha shape from the given points
   Alpha_shape_3 as(lp.begin(),lp.end());
 
+	// Choose an optimal value of alpha
   Alpha_iterator opt = as.find_optimal_alpha(1);
   #ifdef TEST_BUILD
   if (*alpha > 0)
@@ -69,6 +76,7 @@ Mat alphaShapeFaces(Mat points, float *alpha)
   if (alpha != NULL)
 	  *alpha = *opt;
 
+	// Get all faces of the alpha shape into an OpenCV matrix
   std::vector<Facet> facets;
   as.get_alpha_shape_facets(back_inserter(facets), Alpha_shape_3::REGULAR);
   #ifdef TEST_BUILD
@@ -85,6 +93,7 @@ Mat alphaShapeFaces(Mat points, float *alpha)
 			outfacet[(sign*j)%3] = vertex_indices[cell.vertex(j%4)->point()];
 		}
 	}
+	
 	return result;
 }
 
@@ -97,9 +106,8 @@ Mat alphaShapeFaces(Mat points)
 int main(int argc, char**argv)
 {
 	//read input
-	std::ifstream is("shit/bunny_1000");
-	//std::ifstream is("shit/stanford_dragon_big");
-	std::ofstream os("shit/bunny_alpha.obj");
+	std::ifstream is("test/bunny_5000");
+	std::ofstream os("test/bunny_alpha.obj");
 	float alpha = 0;
 	if (argc>1)
 		alpha = atof(argv[1]);
@@ -109,9 +117,12 @@ int main(int argc, char**argv)
 	Mat points(0, 1, CV_32FC3);
 	cv::Point3f point;
 	for(int i=0; i < n; i ++) {
+		// split the bunny
+		/*
 		is >> point.x >> point.y >> point.z;
 		if (point.x < -0.02)
 			point.x -= 0.12;
+		*/
 			
 		points.push_back(point);
 		const float* row = points.ptr<float>();

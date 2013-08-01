@@ -8,8 +8,8 @@ bl_info = {
     "name": "Export Tracks",
     "author": "Addam Dominec",
     "version": (0, 2),
-    "blender": (2, 6, 5),
-		"api": 51791,
+    "blender": (2, 6, 8),
+		"api": 58757,
     "location": "File > Export",
     "description": "Exports camera calibration and tracked bundles from video clip",
     "warning": "",
@@ -19,16 +19,20 @@ bl_info = {
 
 
 def PerspectiveMatrix(fovx, aspect, near=0.1, far=1000.0):
+	"""Get internal camera matrix"""
 	return mathutils.Matrix([
 		[2/fovx, 0, 0, 0],
 		[0, 2*aspect/fovx, 0, 0],
 		[0, 0, (far+near)/(far-near), (2*far*near)/(near-far)],
 		[0, 0, 1, 0]])
 
+
 def write_tracks(context, filepath, include_hidden):
+	"""Main function, writes all data to the given filepath"""
 	f = open(filepath, 'w', encoding='utf-8')
 	f.write("%YAML:1.0\n")
 	
+	# general info about clip
 	clip = context.scene.active_clip
 	tr = clip.tracking
 	fov = tr.camera.sensor_width/tr.camera.focal_length
@@ -47,15 +51,18 @@ def write_tracks(context, filepath, include_hidden):
 					distortion=[tr.camera.k1, tr.camera.k2, tr.camera.k3],
 					center_x=tr.camera.principal[0],
 					center_y=tr.camera.principal[1]))
+	
+	# info about each frame's camera
 	f.write("camera:\n")
+	# Blender uses a different convention than the config file to be written
 	flip = mathutils.Matrix(((1,0,0,0), (0,1,0,0), (0,0,-1,0), (0,0,0,1)));
 	for camera in tr.reconstruction.cameras:
 		cammat = camera.matrix * flip
 		cam_inv = cammat.inverted()
 		distances = [(cam_inv * track.bundle.to_4d()).zw for track in tr.tracks if include_hidden or not track.hide]
+		# guess near and far value based on distances to the tracked points
 		near, far = 0.8*min(z/w for z,w in distances if z/w > 0), 2*max(z/w for z,w in distances)
 		persp = PerspectiveMatrix(fovx=fov, aspect=clip.size[0]/clip.size[1], near=near, far=far)
-		new_distances = [((persp * cam_inv) * track.bundle.to_4d()).zw for track in tr.tracks if include_hidden or not track.hide]
 		f.write(" - frame: {frame}\n"
 						"   near: {near}\n"
 						"   far: {far}\n"
@@ -73,7 +80,8 @@ def write_tracks(context, filepath, include_hidden):
 	          projection=", ".join(str(val) for val in chain(*(persp * cam_inv))),
 		        position = ", ".join(str(val) for val in cammat.translation.to_4d())
 	         ))
-			#camera.average_error, frame, matrix
+	
+	# info about each track
 	f.write("tracks:\n")
 	for track in tr.tracks:
 		if include_hidden or not track.hide:
@@ -85,7 +93,6 @@ def write_tracks(context, filepath, include_hidden):
 			        "   frames-enabled: [{frames}]\n".format(
 			        data=", ".join(str(s) for s in track.bundle.to_4d()),
 			        frames=", ".join(str(marker.frame) for marker in track.markers if not marker.mute)))
-			#tr.bundle, average_error, hide
 	
 	f.close()
 
@@ -94,10 +101,9 @@ def write_tracks(context, filepath, include_hidden):
 
 class ExportTracks(Operator, ExportHelper):
 	'''Export camera calibration and tracked bundles from a movie clip'''
-	bl_idname = "export_anim.tracks"  # important since its how bpy.ops.import_test.some_data is constructed
+	bl_idname = "export_anim.tracks"
 	bl_label = "Export Tracks"
 
-	# ExportHelper mixin class uses this
 	filename_ext = ".yaml"
 
 	filter_glob = StringProperty(
@@ -105,8 +111,6 @@ class ExportTracks(Operator, ExportHelper):
 		options={'HIDDEN'},
 		)
 
-	# List of operator properties, the attributes will be assigned
-	# to the class instance from the operator settings before calling.
 	include_hidden = BoolProperty(
 		name="Include Hidden",
 		description="Export both visible and hidden tracks",
@@ -117,7 +121,6 @@ class ExportTracks(Operator, ExportHelper):
 		return write_tracks(context, self.filepath, self.include_hidden)
 
 
-# Only needed if you want to add into a dynamic menu
 def menu_func(self, context):
 	self.layout.operator(ExportTracks.bl_idname, text="Tracks (.yaml)")
 
@@ -133,4 +136,5 @@ def unregister():
 
 
 if __name__ == "__main__":
+	# if run from the text editor, register
 	register()

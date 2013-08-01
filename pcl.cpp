@@ -1,3 +1,5 @@
+// pcl.cpp: wrapper for the Poisson reconstruction via the Point Cloud Library
+
 #include <pcl/point_types.h>
 #include <pcl/kdtree/kdtree_flann.h>
 #include <pcl/features/normal_3d.h>
@@ -18,12 +20,14 @@
 	#include "recon.hpp"
 #endif
 
+// macro for the power of two
 #define P2(x) (x)*(x)
 
 typedef pcl::PointCloud<pcl::PointNormal> NormalCloud;
 
 Mat estimatedNormals(Mat points);
 
+// convert our point cloud representation for PCL
 NormalCloud::Ptr convert(const Mat points, const Mat normals)
 {
 	NormalCloud::Ptr cloud(new NormalCloud);
@@ -42,6 +46,7 @@ NormalCloud::Ptr convert(const Mat points, const Mat normals)
 	return cloud;
 }
 
+// convert an uncommon PCL mesh representation to ours
 void convert(Mesh dst, std::vector<pcl::Vertices> faces)
 {
 	for (int i=0; i<faces.size(); i++) {
@@ -52,15 +57,18 @@ void convert(Mesh dst, std::vector<pcl::Vertices> faces)
 	}
 }
 
+// convert the standard PCL mesh representation to ours
 int convert(Mesh dst, const pcl::PolygonMesh &mesh)
 {
   if (mesh.cloud.data.empty())
     return -1;
   
+  // read info about the point cloud
   int nr_points  = mesh.cloud.width * mesh.cloud.height;
   unsigned point_size = static_cast<unsigned> (mesh.cloud.data.size() / nr_points);
   unsigned nr_faces = static_cast<unsigned> (mesh.polygons.size());
   
+  // find the fields of interest in the structured point cloud
   size_t field_map[3];
 	for (size_t d = 0; d < mesh.cloud.fields.size(); d++) {
 		if (mesh.cloud.fields[d].datatype != sensor_msgs::PointField::FLOAT32)
@@ -74,6 +82,7 @@ int convert(Mesh dst, const pcl::PolygonMesh &mesh)
 		}
 	}
 	
+	// Read all vertex positions of the point cloud
   for (int i = 0; i < nr_points; ++i) {
 		float *vertex = dst.vertices.ptr<float>(i);
 		for (char j=0; j<3; j++) {
@@ -85,6 +94,7 @@ int convert(Mesh dst, const pcl::PolygonMesh &mesh)
 	
 	// let us ignore output point normals
 	
+	// Read vertex indices of all faces of the given mesh
 	for (int i=0; i<nr_faces; i++) {
 		assert(mesh.polygons[i].vertices.size() == 3);
 		int32_t* verts = dst.faces.ptr<int32_t>(i);
@@ -153,9 +163,9 @@ void filterFinest(Mesh &mesh, float size)
 	#endif
 }
 
-// returns largest dimension of the bounding box
+// returns the largest dimension of the bounding box
+// expects Cartesian points in rows, ignores the 4th column if present
 float boundingBoxSize(const Mat points)
-// expects Cartesian points in rows, ignores 4th column if present
 {
 	float size = 0;
 	for (char j=0; j<3; j++) {
@@ -167,17 +177,23 @@ float boundingBoxSize(const Mat points)
 	return size;
 }
 
+// calculate the isosurface of the Poisson reconstructed volume
 Mesh poissonSurface(const Mat points, const Mat normals, int degree)
 {
 	NormalCloud::Ptr cloud(convert(points, normals));
 	
 	pcl::Poisson<pcl::PointNormal> poisson;
-	//poisson.setConfidence(true); // TODO: seems to do more harm than use
+	// use precision of the triangulated points
+	// may be better to disable, sometimes does more harm than use
+	poisson.setConfidence(true);
+	// output triangles
 	poisson.setOutputPolygons(false);
-	poisson.setDegree(4);
-	poisson.setIsoDivide(degree);
+	// various precision parameters
+	poisson.setDegree(degree);
+	poisson.setIsoDivide(4);
 	poisson.setInputCloud (cloud);
 	
+	// Reconstruct and extract the isosurface
 	pcl::PolygonMesh mesh;
  	poisson.reconstruct(mesh);
 
@@ -187,7 +203,6 @@ Mesh poissonSurface(const Mat points, const Mat normals, int degree)
 	
 	float bbox = boundingBoxSize(result.vertices);
 	float gridSize = bbox / (1<<(poisson.getDepth()-3));
-	//printf("boundbox %g, isodivide %i, depth %i, scale %g, gridsize %g\n", bbox, poisson.getIsoDivide(), poisson.getDepth(), poisson.getScale(), gridSize);
 	//filterFinest(result, 1.8*gridSize);
 	
 	return result;
@@ -198,6 +213,7 @@ Mesh poissonSurface(const Mat points, const Mat normals)
 	return poissonSurface(points, normals, 4);
 }
 
+// experimental function for reconstruction using Radial Basis Functions (too slow, unfortunately)
 Mesh rbfSurface(const Mat points, const Mat normals)
 {
 	NormalCloud::Ptr cloud(convert(points, normals));
@@ -213,6 +229,7 @@ Mesh rbfSurface(const Mat points, const Mat normals)
 	return result;
 }
 
+// experimental function for reconstruction using greedy projections (insufficient quality)
 Mesh greedyProjection(const Mat points, const Mat normals)
 {
 	NormalCloud::Ptr cloud (convert(points, normals));
@@ -248,6 +265,8 @@ Mesh greedyProjection(const Mat points, const Mat normals)
 	return result;
 }
 
+// experimental function: normal estimation from the point cloud
+// for comparison: this works without considering the original pixel coordinates
 Mat estimatedNormals(Mat points)
 {
 	pcl::PointCloud<pcl::PointXYZ>::Ptr cloud (new pcl::PointCloud<pcl::PointXYZ>);
@@ -280,13 +299,13 @@ Mat estimatedNormals(Mat points)
 	}
   return result;
 }
+
 #ifdef TEST_BUILD
 int main(int argc, char**argv)
 {
 	//read input
-	std::ifstream is("/home/addam/src/recon/Alpha_shapes_3/data/bunny_5000");
-	//std::ifstream is("shit/stanford_dragon_big");
-	std::ofstream os("shit/bunny_poisson.obj");
+	std::ifstream is("test/bunny_5000");
+	std::ofstream os("test/bunny_poisson.obj");
   os.precision (5);
 	int n;
 	is >> n;
@@ -308,22 +327,15 @@ int main(int argc, char**argv)
 	}
 	std::cout << "Calculating normals..." << std::endl;
 	Mat normals = estimatedNormals(points);
-	/*int writeIndex = 0;
-	for (int i=0; i<n; i++) {
-		float x = points.at<float>(i, 1);
-		if (writeIndex < i && (x < -0.05 || x > 0.01)) {
-			points.row(i).copyTo(points.row(writeIndex));
-			normals.row(i).copyTo(normals.row(writeIndex));
-			writeIndex ++;
-		}
-	}
-	points.resize(writeIndex);
-	normals.resize(writeIndex);*/
+	
+	// split the bunny
+	/*
 	for (int i=0; i<points.rows; i++) {
 		if (points.at<float>(i, 0) < -0.02) {
 			points.at<float>(i, 0) -= 0.12;
 		}
 	}
+	*/
 	int degree = 4;
 	if (argc > 1)
 		degree = atoi(argv[1]);

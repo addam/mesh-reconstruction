@@ -1,3 +1,6 @@
+// configuration.cpp: a class for parameter parsing and all input/output
+// (except for debugging output, of course)
+
 #include "recon.hpp"
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
@@ -5,12 +8,13 @@
 #include <set>
 #include <getopt.h>
 #include <cstdio>
-#include <libgen.h> // dirname(char*)
+#include <libgen.h> // needed for dirname(char*)
 const char dirDelimiter = '/';
-using namespace cv;
+using namespace cv; // sorry for this...
 
 Configuration::Configuration(int argc, char** argv)
 {
+	// initialization of default parameters
 	char *inFileName=NULL;
 	inMeshFile=NULL;
 	outFileName = (char*)"output.obj";
@@ -23,6 +27,8 @@ Configuration::Configuration(int argc, char** argv)
 	cameraThreshold = 10.;
 	scalingFactor = 1.;
 	skipFrames = 1;
+	
+	// parse all command line options
 	while (1) {
 		int option_index = 0;
 		static struct option long_options[] = {
@@ -112,16 +118,23 @@ Configuration::Configuration(int argc, char** argv)
 		}
 	}
 	
+	// an argument without a preceding identifier is treated as input YAML file name
 	if (optind < argc) {
 		inFileName = argv[optind];
 	}
 	
-	FileStorage fs((inFileName ? inFileName : "tracks/koberec-.yaml"), FileStorage::READ);
+	// read the given YAML configuration file
+	if (!inFileName) {
+		fprintf(stderr, "No configuration YAML file given, exiting.\n");
+		exit(1);
+	}
+	FileStorage fs(inFileName, FileStorage::READ);
 	if (!fs.isOpened()) {
 		printf("Cannot read file %s, exiting.\n", inFileName);
 		exit(1);
 	}
 	
+	// parse general clip properties
 	FileNode nodeClip = fs["clip"];
 	nodeClip["width"] >> width;
 	nodeClip["height"] >> height;
@@ -141,6 +154,7 @@ Configuration::Configuration(int argc, char** argv)
 	}
 	nodeClip["distortion"] >> lensDistortion;
 	
+	// read the video sequence
 	VideoCapture clip(clipPath);
 	if (!clip.isOpened()) {
 		printf("Cannot read clip %s, exiting.\n", clipPath.c_str());
@@ -199,7 +213,7 @@ Configuration::Configuration(int argc, char** argv)
 	farVals.resize(trackedFrameCount);
 	
 	frames.resize(trackedFrameCount);
-	// read and cache the whole clip
+	// Cache the whole clip into memory
 	for (int fi = 0; fi < trackedFrameCount; fi++) {
 		Mat frame;
 		clip.read(frame);
@@ -220,8 +234,9 @@ Configuration::Configuration(int argc, char** argv)
 	}
 }
 
-void cameraToScreen(Mat points, const vector<float> lensDistortion, float aspect)
+// applies radial distortion to the supplied points
 // expects cartesian 3D points in rows
+void cameraToScreen(Mat points, const vector<float> lensDistortion, float aspect)
 {
 	for (int i=0; i < points.rows; i++) {
 		float *p = points.ptr<float>(i);
@@ -231,13 +246,16 @@ void cameraToScreen(Mat points, const vector<float> lensDistortion, float aspect
 	}
 }
 
-const Mat Configuration::reprojectPoints(const int frameNo) {
+// projects the initial point cloud from the given camera
+// returns cartesian 2D points in rows
+const Mat Configuration::projectPoints(const int frameNo) {
 	Mat projectedPoints = (camera(frameNo) * bundles.t()).t();
 	Mat cartesianPoints = dehomogenize(projectedPoints);
 	cameraToScreen(cartesianPoints, lensDistortion, (float)height/(float)width);
 	return cartesianPoints;
 }
 
+// Estimates exposure of each frame using the initial point cloud and normalizes the frames according to it
 void Configuration::estimateExposure()
 {
 	if (verbosity >= 1)
@@ -250,19 +268,20 @@ void Configuration::estimateExposure()
 	std::vector<Mat> validSamples; // submatrices prepared for the linear system
 	validSamples.reserve(frameCount);
 	
+	// Sample the color values from the projected positions on the frames
 	int32_t rowId=0;
 	int matOffset=0;
 	for (int i=0; i<frameCount; i++) {
 		Mat image = frames[i];
 		assert(image.channels() == ch);
-		Mat reprojected = reprojectPoints(i);
+		Mat reprojected = projectPoints(i);
 		for (int j=0; j<pointCount; j++) {
 			if (bundlesEnabled[j].count(i)) {
 				float *re = reprojected.ptr<float>(j);
 				float imageX = centerX + re[0]*width*0.5,
 				      imageY = height - centerY - re[1]*height*0.5;
 				bool valid = true;
-				//if it is enabled in this frame:
+				// if it is enabled in this frame...:
 				float *sc = sampledColor.ptr<float>(rowId);
 				float sample;
 				for (char c=0; c<ch; c++) {
@@ -283,7 +302,7 @@ void Configuration::estimateExposure()
 			}
 		}
 		if (rowId-matOffset < ch) {
-			// TODO: retry taking all values
+			// TODO: retry taking all values into account
 			assert(false);
 		}
 		validSamples.push_back(sampledColor.rowRange(matOffset, rowId));
@@ -291,7 +310,7 @@ void Configuration::estimateExposure()
 	}
 	sampledColor.resize(rowId);
 
-	// for normalization
+	// calculate the current brightness of the points, for normalization
 	double sumBrightness = 0;
 	for (int j=0; j<pointCount; j++) {
 		float sum = 0.;
@@ -306,14 +325,16 @@ void Configuration::estimateExposure()
 		}
 	}
 	sumBrightness *= 1./ch;
-	// sampledColor[frame][point] . exposure[frame] (should)= pointBrightness[point]
+	
+	// Estimate the exposure
+	// assuming: sampledColor[frame][point] . exposure[frame] (should)= pointBrightness[point]
 	Mat exposure(1./ch * Mat::ones(ch, frameCount, CV_32FC1)), pointBrightness(Mat::ones(pointCount, 1, CV_32FC1));
 	int iteration = 0;
 	double error;
 	for (int iteration=0; iteration<100; iteration++) {
 		error = 0;
 		double currentSumBrightness = 0;
-		//imagine that exposure is correct
+		// imagine that exposure is correct
 		for (int j=0; j<pointCount; j++) {
 			float sum = 0.;
 			int weightSum = 0;
@@ -333,7 +354,7 @@ void Configuration::estimateExposure()
 			if (weightSum > 0)
 				pointBrightness.at<float>(j) = sum / weightSum;
 			else
-				pointBrightness.at<float>(j) = 0.; // TODO: such points should be just discarded
+				pointBrightness.at<float>(j) = 0.;
 		}
 		
 		// normalize brightness to original scale
@@ -350,8 +371,8 @@ void Configuration::estimateExposure()
 					validPointBrightness.push_back(pointBrightness.at<float>(j));
 			}
 			assert(validSamples[i].rows == validPointBrightness.rows);
-			// extremely strongly overrelax
-			float omega = 0.8;
+			// strongly overrelax
+			float omega = 0.4;
 			exposure.col(i) = validSamples[i].inv(cv::DECOMP_SVD) * validPointBrightness * (1+omega) - oldExposure * omega;
 			error += cv::norm(validSamples[i]*exposure.col(i) - validPointBrightness) / validPointBrightness.rows;
 		}
@@ -359,7 +380,7 @@ void Configuration::estimateExposure()
 			break;
 	}
 
-	//save exposure somewhere (TODO: or multiply each frame directly?)
+	// save the exposure to a text file, along with some statistical measures
 	if (verbosity >= 3) {
 		FILE *exlog = fopen("exposure.tab", "w+");
 		for (int i=0; i<frameCount; i++) {
@@ -381,6 +402,8 @@ void Configuration::estimateExposure()
 		}
 		fclose(exlog);
 	}
+	
+	// Normalize the brightness of the actual frames
 	for (int i=0; i<frameCount; i++) {
 		std::vector<Mat> channels;
 		cv::split(frames[i], channels);
@@ -388,34 +411,11 @@ void Configuration::estimateExposure()
 		for (char c=0; c<ch; c++) {
 			frames[i] += channels[c] * exposure.at<float>(c, i);
 		}
-		/*
-		// DEBUG
-		Mat painted;
-		cv::cvtColor(frames[i], painted, CV_GRAY2BGR);
-		Mat reprojected = reprojectPoints(i);
-		for (int j=0; j<pointCount; j++) {
-			float *re = reprojected.ptr<float>(j);
-			float imageX = centerX + re[0]*width*0.5,
-			      imageY = height - centerY - re[1]*height*0.5;
-			float brightness = pointBrightness.at<float>(j);
-			cv::Scalar color = cv::Scalar(brightness, brightness, brightness);
-			cv::Scalar mark = cv::Scalar(0,0,255);
-			cv::circle(painted, cv::Point(imageX, imageY), 3, color, -1, 8);
-			cv::circle(painted, cv::Point(imageX, imageY), 1, mark, -1, 8);
-		}
-		cv::namedWindow("w");
-		cv::imshow("w", painted);
-		cvWaitKey(1000);
-		char filename[300];
-		snprintf(filename, 300, "frame%i.png", i);
-		cv::imwrite(filename, frames[i]);
-		*/
 	}
 }
 
 Configuration::~Configuration()
 {
-	
 }
 
 Mat Configuration::reconstructedPoints()

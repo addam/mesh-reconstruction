@@ -1,3 +1,5 @@
+// cgal_poisson.cpp wrapper for the Poisson reconstruction via CGAL
+
 #define CGAL_EIGEN3_ENABLED
 
 #include <CGAL/trace.h>
@@ -44,77 +46,71 @@ typedef CGAL::Implicit_surface_3<Kernel, Poisson_reconstruction_function> Surfac
 // adapted from http://www.cgal.org/Manual/beta/examples/Surface_reconstruction_points_3/poisson_reconstruction_example.cpp
 Mesh poissonSurface(const Mat ipoints, const Mat normals)
 {
-    // Poisson options
-    FT sm_angle = 20.0; // Min triangle angle in degrees.
-    FT sm_radius = 300; // Max triangle size w.r.t. point set average spacing.
-    FT sm_distance = 0.375; // Surface Approximation error w.r.t. point set average spacing.
+		// Poisson options
+		FT sm_angle = 20.0; // Min triangle angle in degrees.
+		FT sm_radius = 300; // Max triangle size w.r.t. point set average spacing.
+		FT sm_distance = 0.375; // Surface Approximation error w.r.t. point set average spacing.
 
-    PointList points;
-    points.reserve(ipoints.rows);
-    float min = 0, max = 0;
-    for (int i=0; i<ipoints.rows; i++) {
+		PointList points;
+		points.reserve(ipoints.rows);
+		float min = 0, max = 0;
+		for (int i=0; i<ipoints.rows; i++) {
 			float const *p = ipoints.ptr<float const>(i), *n = normals.ptr<float const>(i);
 			points.push_back(Point_with_normal(Point(p[0]/p[3], p[1]/p[3], p[2]/p[3]), Vector(n[0], n[1], n[2])));
 			if (p[0]/p[3] > max) max = p[0]/p[3];
 			if (p[0]/p[3] < min) min = p[0]/p[3];
 		}
 
-    // Creates implicit function from the read points using the default solver.
+		// Creates implicit function from the read points using the default solver.
 
-    // Note: this method requires an iterator over points
-    // + property maps to access each point's position and normal.
-    // The position property map can be omitted here as we use iterators over Point_3 elements.
-    Poisson_reconstruction_function function(points.begin(), points.end(),
-                                             CGAL::make_normal_of_point_with_normal_pmap(points.begin()) );
+		// Note: this method requires an iterator over points
+		// + property maps to access each point's position and normal.
+		// The position property map can be omitted here as we use iterators over Point_3 elements.
+		Poisson_reconstruction_function function(points.begin(), points.end(), CGAL::make_normal_of_point_with_normal_pmap(points.begin()) );
 
-    // Computes the Poisson indicator function f()
-    // at each vertex of the triangulation.
-    bool success = function.compute_implicit_function();
-    assert(success);
+		// Computes the Poisson indicator function f() at each vertex of the triangulation.
+		bool success = function.compute_implicit_function();
+		assert(success);
 #ifdef TEST_BUILD
 		printf("implicit function ready. Meshing...\n");
 #endif
-    // Computes average spacing
-    FT average_spacing = CGAL::compute_average_spacing(points.begin(), points.end(),
-                                                       6 /* knn = 1 ring */);
+		// Computes average spacing
+		FT average_spacing = CGAL::compute_average_spacing(points.begin(), points.end(), 6 /* knn = 1 ring */);
 
-    // Gets one point inside the implicit surface
-    // and computes implicit function bounding sphere radius.
-    Point inner_point = function.get_inner_point();
-    Sphere bsphere = function.bounding_sphere();
-    FT radius = std::sqrt(bsphere.squared_radius());
+		// Gets one point inside the implicit surface
+		// and computes implicit function bounding sphere radius.
+		Point inner_point = function.get_inner_point();
+		Sphere bsphere = function.bounding_sphere();
+		FT radius = std::sqrt(bsphere.squared_radius());
 
-    // Defines the implicit surface: requires defining a
-    // conservative bounding sphere centered at inner point.
-    FT sm_sphere_radius = 5.0 * radius;
-    FT sm_dichotomy_error = sm_distance*average_spacing/1000.0; // Dichotomy error must be << sm_distance
-    Surface_3 surface(function,
-                      Sphere(inner_point,sm_sphere_radius*sm_sphere_radius),
-                      sm_dichotomy_error/sm_sphere_radius);
+		// Defines the implicit surface: requires defining a
+		// conservative bounding sphere centered at inner point.
+		FT sm_sphere_radius = 5.0 * radius;
+		FT sm_dichotomy_error = sm_distance*average_spacing/1000.0; // Dichotomy error must be << sm_distance
+		Surface_3 surface(function, Sphere(inner_point,sm_sphere_radius*sm_sphere_radius), sm_dichotomy_error/sm_sphere_radius);
 
-    // Defines surface mesh generation criteria
-    CGAL::Surface_mesh_default_criteria_3<STr> criteria(sm_angle,  // Min triangle angle (degrees)
-                                                        sm_radius*average_spacing,  // Max triangle size
-                                                        sm_distance*average_spacing); // Approximation error
+		// Defines surface mesh generation criteria
+		// parameters: min triangle angle (degrees), max triangle size, approximation error
+		CGAL::Surface_mesh_default_criteria_3<STr> criteria(sm_angle, sm_radius*average_spacing, sm_distance*average_spacing);
 
-    // Generates surface mesh with manifold option
-    STr tr; // 3D Delaunay triangulation for surface mesh generation
-    C2t3 c2t3(tr); // 2D complex in 3D Delaunay triangulation
-    CGAL::make_surface_mesh(c2t3,                       // reconstructed mesh
-                            surface,                    // implicit surface
-                            criteria,                   // meshing criteria
-                            CGAL::Non_manifold_tag());  // do not require manifold mesh
+		// Generates surface mesh with manifold option
+		STr tr; // 3D Delaunay triangulation for surface mesh generation
+		C2t3 c2t3(tr); // 2D complex in 3D Delaunay triangulation
+		// parameters: reconstructed mesh, implicit surface, meshing criteria, 'do not require manifold mesh'
+		CGAL::make_surface_mesh(c2t3, surface, criteria, CGAL::Non_manifold_tag());
 
-    assert(tr.number_of_vertices() > 0);
-    
-
-    std::map<Point, int> vertexIndices;
-    Mat vertices(tr.number_of_vertices(), 4, CV_32FC1), faces(c2t3.number_of_facets(), 3, CV_32SC1);
+		assert(tr.number_of_vertices() > 0);
+		
+		// Search structure: index of the vertex at an exactly given position
+		std::map<Point, int> vertexIndices;
+		
+		// Extract all vertices of the resulting mesh
+		Mat vertices(tr.number_of_vertices(), 4, CV_32FC1), faces(c2t3.number_of_facets(), 3, CV_32SC1);
 #ifdef TEST_BUILD
-    printf("%i vertices, %i facets. Converting...\n", vertices.rows, faces.rows);
+		printf("%i vertices, %i facets. Converting...\n", vertices.rows, faces.rows);
 #endif
-    {int i=0;
-	    for (C2t3::Vertex_iterator it=c2t3.vertices_begin(); it!=c2t3.vertices_end(); it++, i++) {
+		{int i=0;
+			for (C2t3::Vertex_iterator it=c2t3.vertices_begin(); it!=c2t3.vertices_end(); it++, i++) {
 				float *vertex = vertices.ptr<float>(i);
 				Point p = it->point();
 				vertex[0] = p.x(); vertex[1] = p.y(); vertex[2] = p.z();
@@ -123,7 +119,9 @@ Mesh poissonSurface(const Mat ipoints, const Mat normals)
 			}
 			vertices.resize(i);
 		}
-    {int i=0; for (C2t3::Facet_iterator it=c2t3.facets_begin(); it!=c2t3.facets_end(); it++, i++) {
+		
+		// Extract all faces of the resulting mesh and calculate the index of each of their vertices
+		{int i=0; for (C2t3::Facet_iterator it=c2t3.facets_begin(); it!=c2t3.facets_end(); it++, i++) {
 			Cell cell = *it->first;
 			int vertex_excluded = it->second;
 			int32_t* outfacet = faces.ptr<int32_t>(i);
@@ -134,16 +132,15 @@ Mesh poissonSurface(const Mat ipoints, const Mat normals)
 			}
 		}}
 
-    return Mesh(vertices, faces);
+		return Mesh(vertices, faces);
 }
 
 #ifdef TEST_BUILD
 int main()
 {
 	//read input
-	//std::ifstream is("shit/bunny_1000");
-	std::ifstream is("shit/suzanne");
-	std::ofstream os("shit/suzanne_poisson.obj");
+	std::ifstream is("test/suzanne");
+	std::ofstream os("test/suzanne_poisson.obj");
 	int n;
 	is >> n;
 	std::cout << "Reading " << n << " points with normals..." << std::endl;

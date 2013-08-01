@@ -1,8 +1,8 @@
+// recon.hpp: main header file
+// contains declarations of all public functions and classes used in the program
+
 #ifndef RECON_HPP
 #define RECON_HPP
-
-#define WITH_CGAL
-#define WITH_PCL
 
 #include <opencv2/core/core.hpp>
 #include <list>
@@ -13,6 +13,7 @@
 #define IMIN(a,b) (((a)<(b)) ? (a) : (b))
 #define IMAX(a,b) (((a)>(b)) ? (a) : (b))
 
+// convenience typedef's (instead of 'using namespace')
 typedef unsigned char uchar;
 typedef cv::Mat Mat;
 typedef struct Mesh{
@@ -28,28 +29,21 @@ class Heuristic;
 
 const float backgroundDepth = 1.0;
 
-#ifdef WITH_CGAL
-// alpha_shapes.cpp
+// == alpha_shapes.cpp ==
 Mat alphaShapeFaces(const Mat points);
 Mat alphaShapeFaces(const Mat points, float *alpha); //'alpha' is currently just written to, not used
-#endif
 
-#ifdef WITH_PCL
-// pcl.cpp
-Mesh greedyProjection(const Mat points, const Mat normals);
+// == either pcl.cpp or cgal_poisson.cpp ==
 Mesh poissonSurface(const Mat points, const Mat normals);
-Mesh rbfSurface(const Mat points, const Mat normals);
-#endif
 
-// flow.cpp
+// == flow.cpp ==
 Mat calculateFlow(const Mat prev, const Mat next, bool useFarneback);
 
-// util.cpp
+// == util.cpp ==
 Mat extractCameraCenter(const Mat camera);
-Mat triangulatePixels(const MatList flows, const Mat mainCamera, const MatList cameras, const Mat depth); //mělo by to jako poslední kanál zaznamenávat chybovou míru, aspoň nějak urvat
+Mat triangulatePixels(const MatList flows, const Mat mainCamera, const MatList cameras, const Mat depth);
 Mat compare(const Mat prev, const Mat next);
 Mat dehomogenize(Mat points);
-Mat dehomogenize2D(const Mat points);
 float sampleImage(const Mat image, float radius, const float x, const float y, char c);
 template <class T> T sampleImage(const Mat image, const float x, const float y); // linear sampling
 Mat mixBackground(const Mat image, const Mat background, Mat &depth);
@@ -59,18 +53,17 @@ void saveImage(const Mat image, const char *fileName, bool normalize);
 Mesh readMesh(const char *fileName);
 void saveMesh(const Mesh, const char *fileName);
 Mat imageGradient(const Mat image);
-void addChannel(MatList dest, const Mat src);
 
-// configuration.cpp
+// == configuration.cpp ==
 class Configuration {
 	public:
 		Configuration(int argc, char** argv);
 		~Configuration();
 		Mat reconstructedPoints();
-		const Mat frame(int frameNo) const;
-		const Mat camera(int frameNo) const;
+		const Mat frame(int frameNo) const; // individual frames of the video clip
+		const Mat camera(int frameNo) const; // individual cameras
 		const std::vector<Mat> allCameras() const;
-		const float near(int frameNo);
+		const float near(int frameNo); // near camera values for each frame
 		const float far(int frameNo);
 		const int frameCount();
 		int iterationCount;
@@ -84,7 +77,7 @@ class Configuration {
 		char *outFileName;
 		char *inMeshFile; // filename to read initial mesh from
 	protected:
-		const Mat reprojectPoints(int frame);
+		const Mat projectPoints(int frame);
 		void estimateExposure();
 		std::vector <Mat> frames;
 		std::vector <Mat> cameras;
@@ -96,28 +89,27 @@ class Configuration {
 		bool doEstimateExposure;
 };
 
-// render_<whatever>.cpp
+// == render_glx.cpp (or perhaps render_<whatever>.cpp in the future) ==
 class Render {
 	public:
 		virtual ~Render() {};
 		virtual void loadMesh(const Mesh) = 0;
 		virtual Mat projected(const Mat camera, const Mat frame, const Mat projector) = 0;
 		virtual Mat depth(const Mat camera) = 0;
-		//TODO: virtual Mat depth(const Mat camera, int width, int height) = 0;
 };
 Render *spawnRender(Heuristic hint);
 
-// heuristic.cpp
+// == heuristic.cpp ==
 typedef std::pair <int, std::vector <int> > numberedVector;
 class Heuristic {
 	public:
 		Heuristic(Configuration *iconfig);
 		int chooseCameras(const Mesh mesh, const std::vector<Mat> cameras);
 		bool notHappy(const Mat points);
-		int beginMain(); // initialize and return frame number for first main camera
-		int nextMain(); // return frame number for next main camera
-		int beginSide(int mainNumber); // initialize and return frame number for first side camera
-		int nextSide(int mainNumber); // return frame number for next side camera
+		int beginMain(); // initialize and return frame number for the first main camera
+		int nextMain(); // return frame number for the next main camera
+		int beginSide(int mainNumber); // initialize and return frame number for the first side camera
+		int nextSide(int mainNumber); // return frame number for the next side camera
 		void filterPoints(Mat& points, Mat& normals);
 		Mesh tessellate(const Mat points, const Mat normals);
 		cv::Size renderSize();

@@ -1,3 +1,5 @@
+// flow.cpp: wrapper for optical flow calculation
+
 #include <opencv2/video/tracking.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 #include <opencv2/legacy/compat.hpp>
@@ -19,18 +21,13 @@ Mat calculateFlow(Mat prev, Mat next, bool use_farneback)
 {
 	Mat flow;
 	if (use_farneback) {
+		// Calculate flow using Farnebäck's algorithm and some parameters that seem to work the best
 		double pyr_scale = 0.8, poly_sigma = (prev.rows+prev.cols)/1000.0;
-		int levels = 100, winsize = (prev.rows+prev.cols)/100, iterations = 7, poly_n = (poly_sigma<1.5?5:7), flags = 0;//cv::OPTFLOW_FARNEBACK_GAUSSIAN;
+		int levels = 100, winsize = (prev.rows+prev.cols)/100, iterations = 7, poly_n = (poly_sigma<1.5?5:7), flags = 0;
 		cv::calcOpticalFlowFarneback(prev, next, flow, pyr_scale, levels, winsize, iterations, poly_n, poly_sigma, flags);
-		//flags = cv::OPTFLOW_USE_INITIAL_FLOW | cv::OPTFLOW_FARNEBACK_GAUSSIAN;
-		//pyr_scale = 0.5;
-		//iterations = 50;
-		//levels = 1;
-		//poly_sigma = 1.3;
-		//poly_n = 3;
-		//winsize = 20;
-		//cv::calcOpticalFlowFarneback(prev_gray, next_gray, flow, pyr_scale, levels, winsize, iterations, poly_n, poly_sigma, flags);
 	} else {
+		// calculate flow using the Horn&Schunck scheme
+		// needs some conversions for OpenCV 1.x
 		CvMat *velx = cvCreateMat(prev.rows, prev.cols, CV_32FC1), *vely = cvCreateMat(prev.rows, prev.cols, CV_32FC1);
 		flow = Mat(prev.rows, prev.cols, CV_32FC2);
 		double epsilon = 1e-10;
@@ -43,22 +40,16 @@ Mat calculateFlow(Mat prev, Mat next, bool use_farneback)
 		cvReleaseMat(&velx);
 		cvReleaseMat(&vely);
 	}
-	Mat certanity = compare(prev, flowRemap(flow, next));
+	// estimate the variance in each pixel
+	Mat variance = compare(prev, flowRemap(flow, next));
 	
-	//certanity = 1 - (1/(certanity + 1));
-	Mat mixInput[] = {flow, certanity};
+	// combine all the values into a single matrix
+	Mat mixInput[] = {flow, variance};
 	Mat mixed(flow.rows, flow.cols, CV_32FC4); // opencv does weird things if channel count is not 4...
 	int fromTo[] = {0,0, 1,1, 2,2, -1,3};
 	cv::mixChannels(mixInput, 2, &mixed, 1, fromTo, 4);
 	return mixed;
 }
-/*Mat calculateFlowSF(Mat prev, Mat next)
-{
-	Mat flow;
-	int layers = 8, blocksize=30, maxflow=3;
-	calcOpticalFlowSF(prev, next, flow, layers, blocksize, maxflow);
-	return flow;
-}*/
 
 #else //ifdef TEST_BUILD
 
