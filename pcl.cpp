@@ -20,6 +20,8 @@
 	#include "recon.hpp"
 #endif
 
+#define USE_PRECISION // use precision of points (from triangulation)
+
 // macro for the power of two
 #define P2(x) (x)*(x)
 

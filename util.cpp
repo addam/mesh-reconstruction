@@ -9,7 +9,7 @@
 
 #include "recon.hpp"
 
-//#define USE_COVAR_MATRICES
+#define USE_COVAR_MATRICES
 
 // convert 3D homogeneous points to their Cartesian representation
 // expects points in rows, returns a new n x 3 matrix

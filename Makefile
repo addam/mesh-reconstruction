@@ -3,7 +3,7 @@ SYSTEM_OPENGL = glx
 # either 'pcl' or 'cgal'
 POISSON_LIBRARY = pcl
 CXX = g++
-CXXFLAGS = -g -O2
+CXXFLAGS = -g -O1
 
 opencv_LIBS = -lopencv_core -lopencv_calib3d -lopencv_video -lopencv_highgui -lopencv_imgproc -lopencv_flann -lopencv_legacy
 cgal_LIBS = -lCGAL -lboost_thread -lgmp -lmpfr
