@@ -28,7 +28,7 @@
 	#include "recon.hpp"
 #endif
 
-// pointer to function that can create an OpenGL 3.0 context
+// pointer to a function that can create an OpenGL 3.0 context
 typedef GLXContext (*GLXCREATECONTEXTATTRIBSARBPROC)(Display*, GLXFBConfig, GLXContext, Bool, const int*);
 
 // Specialization of the generic Render class

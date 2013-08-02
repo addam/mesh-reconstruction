@@ -185,7 +185,9 @@ Mesh poissonSurface(const Mat points, const Mat normals, int degree)
 	pcl::Poisson<pcl::PointNormal> poisson;
 	// use precision of the triangulated points
 	// may be better to disable, sometimes does more harm than use
+#ifdef USE_PRECISION
 	poisson.setConfidence(true);
+#endif
 	// output triangles
 	poisson.setOutputPolygons(false);
 	// various precision parameters

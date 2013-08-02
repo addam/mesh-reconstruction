@@ -77,7 +77,11 @@ Configuration::Configuration(int argc, char** argv)
 				break;
 			
 			case 's':
-				scalingFactor = atof(optarg);
+				{
+					float tmp = atof(optarg);
+					if (tmp > 1)
+						scalingFactor = tmp;
+				}
 				break;
 			
 			case 'k':
@@ -130,7 +134,7 @@ Configuration::Configuration(int argc, char** argv)
 	}
 	FileStorage fs(inFileName, FileStorage::READ);
 	if (!fs.isOpened()) {
-		printf("Cannot read file %s, exiting.\n", inFileName);
+		fprintf(stderr, "Cannot read file %s, exiting.\n", inFileName);
 		exit(1);
 	}
 	
@@ -138,6 +142,10 @@ Configuration::Configuration(int argc, char** argv)
 	FileNode nodeClip = fs["clip"];
 	nodeClip["width"] >> width;
 	nodeClip["height"] >> height;
+	
+	if (fmod(width, scalingFactor) > 0 || fmod(height, scalingFactor) > 0) {
+		fprintf(stderr, "You requested downscaling the video by a factor that the frame dimensions are not divisible by. This may cause instability of the program.\n");
+	}
 	
  	string clipPathRel;
 	nodeClip["path"] >> clipPathRel;

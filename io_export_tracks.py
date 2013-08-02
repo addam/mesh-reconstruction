@@ -3,6 +3,7 @@ from bpy_extras.io_utils import ExportHelper
 from bpy.props import StringProperty, BoolProperty
 from bpy.types import Operator
 from itertools import chain
+from os.path import dirname
 
 bl_info = {
     "name": "Export Tracks",
@@ -44,7 +45,7 @@ def write_tracks(context, filepath, include_hidden):
 					" distortion: {distortion}\n"
 					" center-x: {center_x}\n"
 					" center-y: {center_y}\n".format(
-					path=bpy.path.relpath(clip.filepath)[2:],
+					path=bpy.path.relpath(clip.filepath, start=dirname(filepath))[2:],
 					width=clip.size[0],
 					height=clip.size[1],
 					fov=fov,

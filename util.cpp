@@ -54,7 +54,7 @@ bool goodSample(const Mat image, const float x, const float y)
 
 // Triangulate a 3D homogeneous point at given pixel position
 // x, y: camera-space positions in [-1; 1]
-// measuredPoints: 2D points in columns, each corresponding to the side camera with the same index
+// measuredPoints: 2D points in columns, i-th column corresponding to cameras[i]
 // invVariances: (if USE_COVAR_MATRICES) data joined from all the covariance matrices, each row corresponding to a side camera with the same index
 //               (if not USE_COVAR_MATRICES) a vector of \sigma^{-2}, each corresponding to a side camera with the same index
 // cameras: side cameras, list of matrices
