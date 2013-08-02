@@ -107,7 +107,7 @@ DensityPoint triangulatePixel(float x, float y, const Mat measuredPoints, const 
 		cv::divide(projectionDerivatives.row(0), pointsW, delta_p.row(0));
 		cv::divide(projectionDerivatives.row(1), pointsW, delta_p.row(1));
 		
-		// sum up the first and second derivative at the current point
+		// calculate the first and the second derivative at the current point
 		double firstDz = 0, secondDz = 0;
 		Mat difference = p - measuredPoints;
 		for (int i=0; i<delta_p.cols; i++) {
@@ -123,7 +123,7 @@ DensityPoint triangulatePixel(float x, float y, const Mat measuredPoints, const 
 		
 		// calculate the update step and end if it would be small enough
 		double delta_z = -firstDz/secondDz, eps = 1e-7;
-		if (iterCount >= 5 || (delta_z < eps && delta_z > -eps)) {
+		if (iterCount >= 50 || (delta_z < eps && delta_z > -eps)) {
 			// calculate the combined probability of the result
 			double exponent = 0, product_ivar = 1;
 			#ifdef USE_COVAR_MATRICES

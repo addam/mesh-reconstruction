@@ -34,6 +34,16 @@ NormalCloud::Ptr convert(const Mat points, const Mat normals)
 {
 	NormalCloud::Ptr cloud(new NormalCloud);
 	assert(points.rows == normals.rows);
+	
+	// scale the normals to unit length on average (not each, they express the precision)
+	double normalSumSize = 1;
+	for (int i=0; i<normals.rows; i++) {
+		double normalSize = cv::norm(normals.row(i));
+		normalSumSize += normalSize;
+	}
+	double normalScaling = normals.rows / normalSumSize;
+	
+	// convert the data
 	cloud->reserve(points.rows);
 	for (int i=0; i<points.rows; i++) {
 		pcl::PointNormal p;
@@ -41,7 +51,7 @@ NormalCloud::Ptr convert(const Mat points, const Mat normals)
 		const float* normal = normals.ptr<float>(i);
 		for (char j=0; j<3; j++) {
 			p.data[j] = point[j] / point[3];
-			p.normal[j] = normal[j];
+			p.normal[j] = normal[j] * normalScaling;
 		}
 		cloud->push_back(p);
 	}
