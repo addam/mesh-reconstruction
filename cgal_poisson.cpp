@@ -1,7 +1,9 @@
-// cgal_poisson.cpp wrapper for the Poisson reconstruction via CGAL
-
+// cgal_poisson.cpp: wrapper for the Poisson reconstruction via CGAL
+// adopted from https://doc.cgal.org/latest/Poisson_surface_reconstruction_3/Poisson_surface_reconstruction_3_2poisson_reconstruction_example_8cpp-example.html
 #define CGAL_EIGEN3_ENABLED
 
+#include <CGAL/IO/facets_in_complex_2_to_triangle_mesh.h>
+#include <CGAL/Polygon_mesh_processing/distance.h>
 #include <CGAL/trace.h>
 #include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
 #include <CGAL/Polyhedron_3.h>
@@ -42,8 +44,6 @@ typedef CGAL::Surface_mesh_default_triangulation_3 STr;
 typedef STr::Cell Cell;
 typedef CGAL::Surface_mesh_complex_2_in_triangulation_3<STr> C2t3;
 typedef CGAL::Implicit_surface_3<Kernel, Poisson_reconstruction_function> Surface_3;
-
-// adapted from http://www.cgal.org/Manual/beta/examples/Surface_reconstruction_points_3/poisson_reconstruction_example.cpp
 Mesh poissonSurface(const Mat ipoints, const Mat normals)
 {
 		// Poisson options
@@ -66,8 +66,8 @@ Mesh poissonSurface(const Mat ipoints, const Mat normals)
 		// Note: this method requires an iterator over points
 		// + property maps to access each point's position and normal.
 		// The position property map can be omitted here as we use iterators over Point_3 elements.
-		Poisson_reconstruction_function function(points.begin(), points.end(), CGAL::make_normal_of_point_with_normal_pmap(points.begin()) );
-
+		Poisson_reconstruction_function function(points.begin(), points.end(),
+												 CGAL::make_normal_of_point_with_normal_map(PointList::value_type()) );
 		// Computes the Poisson indicator function f() at each vertex of the triangulation.
 		bool success = function.compute_implicit_function();
 		assert(success);
@@ -75,8 +75,7 @@ Mesh poissonSurface(const Mat ipoints, const Mat normals)
 		printf("implicit function ready. Meshing...\n");
 #endif
 		// Computes average spacing
-		FT average_spacing = CGAL::compute_average_spacing(points.begin(), points.end(), 6 /* knn = 1 ring */);
-
+		FT average_spacing = CGAL::compute_average_spacing<CGAL::Sequential_tag>(points, 6 /* knn = 1 ring */);
 		// Gets one point inside the implicit surface
 		// and computes implicit function bounding sphere radius.
 		Point inner_point = function.get_inner_point();
@@ -87,19 +86,20 @@ Mesh poissonSurface(const Mat ipoints, const Mat normals)
 		// conservative bounding sphere centered at inner point.
 		FT sm_sphere_radius = 5.0 * radius;
 		FT sm_dichotomy_error = sm_distance*average_spacing/1000.0; // Dichotomy error must be << sm_distance
-		Surface_3 surface(function, Sphere(inner_point,sm_sphere_radius*sm_sphere_radius), sm_dichotomy_error/sm_sphere_radius);
-
+		Surface_3 surface(function,
+						  Sphere(inner_point,sm_sphere_radius*sm_sphere_radius),
+						  sm_dichotomy_error/sm_sphere_radius);
 		// Defines surface mesh generation criteria
-		// parameters: min triangle angle (degrees), max triangle size, approximation error
-		CGAL::Surface_mesh_default_criteria_3<STr> criteria(sm_angle, sm_radius*average_spacing, sm_distance*average_spacing);
-
+		CGAL::Surface_mesh_default_criteria_3<STr> criteria(sm_angle,  // Min triangle angle (degrees)
+															sm_radius*average_spacing,  // Max triangle size
+															sm_distance*average_spacing); // Approximation error
 		// Generates surface mesh with manifold option
 		STr tr; // 3D Delaunay triangulation for surface mesh generation
 		C2t3 c2t3(tr); // 2D complex in 3D Delaunay triangulation
-		// parameters: reconstructed mesh, implicit surface, meshing criteria, 'do not require manifold mesh'
-		CGAL::make_surface_mesh(c2t3, surface, criteria, CGAL::Non_manifold_tag());
-
-		assert(tr.number_of_vertices() > 0);
+		CGAL::make_surface_mesh(c2t3,                                 // reconstructed mesh
+							surface,                              // implicit surface
+							criteria,                             // meshing criteria
+							CGAL::Non_manifold_tag());  // require manifold mesh		assert(tr.number_of_vertices() > 0);
 		
 		// Search structure: index of the vertex at an exactly given position
 		std::map<Point, int> vertexIndices;

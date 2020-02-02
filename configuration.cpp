@@ -8,9 +8,12 @@
 #include <set>
 #include <getopt.h>
 #include <cstdio>
+#include <string>
 #include <libgen.h> // needed for dirname(char*)
 const char dirDelimiter = '/';
 using namespace cv; // sorry for this...
+using std::string;
+using std::vector;
 
 Configuration::Configuration(int argc, char** argv)
 {
@@ -109,11 +112,11 @@ Configuration::Configuration(int argc, char** argv)
 				printf("  -e, --estimate-exposure   try to normalize exposure over time (default: false)\n");
 				printf("  -f, --farneback           use Farneback's algorithm for optical flow, intsead of Horn & Schunck's (default: false)\n");
 				printf("  -h, --help                print this message and exit\n");
-				printf("  -i, --input=s             input configuration file name (.yaml, usually exported from Blender; default: output.obj)\n");
+				printf("  -i, --input=s             input configuration file name (.yaml, usually exported from Blender)\n");
 				printf("  -k, --skip-frames=i       use only every n-th frame of the sequence (default: 1)\n");
 				printf("  -m, --input-mesh=s        load initial scene estimate from given file (.obj, by default not set)\n");
 				printf("  -n, --iterations=i        maximal iteration count of surface reconstruction (default: 2)\n");
-				printf("  -o, --output=s            output mesh file name (.obj)\n");
+				printf("  -o, --output=s            output mesh file name (.obj; default: output.obj)\n");
 				printf("  -s, --scale=f             downsample the input video by a given factor (default: 1.0)\n");
 				printf("  -v, --verbose             print current task and summarize its results during computation\n");
 				printf("  -V, --hyper-verbose       print out what comes to mind, and save all images at hand\n");

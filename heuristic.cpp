@@ -426,7 +426,7 @@ const CameraLabel chooseSide(std::map<unsigned, float> &weights, CameraLabel mai
 }
 
 // Choose all camera bundles (1 x main, n x side) for an update iteration
-int Heuristic::chooseCameras(const Mesh mesh, const std::vector<Mat> cameras)
+int Heuristic::chooseCameras(const Mesh mesh, const std::vector<Mat> cameras, const Render &render)
 {
 	chosenCameras.clear();
 	int cameraCount = 0;
@@ -441,8 +441,6 @@ int Heuristic::chooseCameras(const Mesh mesh, const std::vector<Mat> cameras)
 	float samplingResolution = sqrt(cameras.size())*config->width*config->height/(totalArea * config->cameraThreshold); // units: pixels per scene-space area
 	std::vector<bool> used(false, mesh.faces.rows);
 	cv::RNG random = cv::theRNG();
-	Render *render = spawnRender(*this);
-	render->loadMesh(mesh);
 	std::vector<int> empty;
 	int shotCount = 200;
 	// table indexed by calling compact(i,j) on two indices
@@ -455,7 +453,7 @@ int Heuristic::chooseCameras(const Mesh mesh, const std::vector<Mat> cameras)
 		// render a view of the scene from that face
 		float far = 10; // fixme, may fail. Should be calculated from the scene geometry
 		Mat viewer = faceCamera(mesh, chosenIdx, far, focal);
-		Mat depth = render->depth(viewer);
+		Mat depth = render.depth(viewer);
 		
 		// filter out cameras that do not display this point correctly
 		LabelledCameras filteredCameras = filterCameras(viewer, depth, cameras);
@@ -481,7 +479,6 @@ int Heuristic::chooseCameras(const Mesh mesh, const std::vector<Mat> cameras)
 			// no camera pair available for this point on the scene surface
 		}
 	}
-	delete render;
 	
 	// make the list a bit nicer
 	std::sort(chosenCameras.begin(), chosenCameras.end());

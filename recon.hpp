@@ -95,7 +95,7 @@ class Render {
 		virtual ~Render() {};
 		virtual void loadMesh(const Mesh) = 0;
 		virtual Mat projected(const Mat camera, const Mat frame, const Mat projector) = 0;
-		virtual Mat depth(const Mat camera) = 0;
+		virtual Mat depth(const Mat camera) const = 0;
 };
 Render *spawnRender(Heuristic hint);
 
@@ -104,7 +104,7 @@ typedef std::pair <int, std::vector <int> > numberedVector;
 class Heuristic {
 	public:
 		Heuristic(Configuration *iconfig);
-		int chooseCameras(const Mesh mesh, const std::vector<Mat> cameras);
+		int chooseCameras(const Mesh mesh, const std::vector<Mat> cameras, const Render&);
 		bool notHappy(const Mat points);
 		int beginMain(); // initialize and return frame number for the first main camera
 		int nextMain(); // return frame number for the next main camera

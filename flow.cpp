@@ -2,8 +2,7 @@
 
 #include <opencv2/video/tracking.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
-#include <opencv2/legacy/compat.hpp>
-#include <opencv2/legacy/legacy.hpp>
+#include <opencv2/optflow.hpp>
 #include <vector>
 
 #ifdef TEST_BUILD
@@ -19,27 +18,18 @@
 #ifndef TEST_BUILD
 Mat calculateFlow(Mat prev, Mat next, bool use_farneback)
 {
-	Mat flow;
+	cv::Ptr<cv::DenseOpticalFlow> algo;
 	if (use_farneback) {
 		// Calculate flow using Farnebäck's algorithm and some parameters that seem to work the best
 		double pyr_scale = 0.8, poly_sigma = (prev.rows+prev.cols)/1000.0;
-		int levels = 100, winsize = (prev.rows+prev.cols)/100, iterations = 7, poly_n = (poly_sigma<1.5?5:7), flags = 0;
-		cv::calcOpticalFlowFarneback(prev, next, flow, pyr_scale, levels, winsize, iterations, poly_n, poly_sigma, flags);
+		int levels = 10, winsize = (prev.rows+prev.cols)/100, iterations = 7, poly_n = (poly_sigma<1.5?5:7), flags = 0;
+		algo = cv::FarnebackOpticalFlow::create(levels, pyr_scale, false, winsize, iterations, poly_n, poly_sigma, flags);
 	} else {
 		// calculate flow using the Horn&Schunck scheme
-		// needs some conversions for OpenCV 1.x
-		CvMat *velx = cvCreateMat(prev.rows, prev.cols, CV_32FC1), *vely = cvCreateMat(prev.rows, prev.cols, CV_32FC1);
-		flow = Mat(prev.rows, prev.cols, CV_32FC2);
-		double epsilon = 1e-10;
-		CvTermCriteria crit = {CV_TERMCRIT_ITER+CV_TERMCRIT_EPS, 300, epsilon};
-		CvMat prevm = prev, nextm = next;
-		cvCalcOpticalFlowHS(&prevm, &nextm, false, velx, vely, 1./1024, crit);
-		int fromTo[] = {0,0, 1,1};
-		Mat combi[] = {Mat(velx), Mat(vely)};
-		cv::mixChannels(combi, 2, &flow, 1, fromTo, 2);
-		cvReleaseMat(&velx);
-		cvReleaseMat(&vely);
+		algo = cv::optflow::createVariationalFlowRefinement();
 	}
+	Mat flow(prev.rows, prev.cols, CV_32FC2);
+	algo->calc(prev, next, flow);
 	// estimate the variance in each pixel
 	Mat variance = compare(prev, flowRemap(flow, next));
 	

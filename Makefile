@@ -1,13 +1,13 @@
 # only option as of now
 SYSTEM_OPENGL = glx
 # either 'pcl' or 'cgal'
-POISSON_LIBRARY = pcl
+POISSON_LIBRARY = cgal
 CXX = g++
 CXXFLAGS = -O2
 EIGEN_INCLUDE_DIR = /usr/include/eigen3
 PCL_INCLUDE_DIR = /usr/local/include/pcl-1.6
 
-opencv_LIBS = -lopencv_core -lopencv_calib3d -lopencv_video -lopencv_highgui -lopencv_imgproc -lopencv_flann -lopencv_legacy
+opencv_LIBS = -lopencv_core -lopencv_calib3d -lopencv_video -lopencv_highgui -lopencv_imgproc -lopencv_flann -lopencv_videoio -lopencv_imgcodecs -lopencv_optflow
 cgal_LIBS = -lCGAL -lboost_thread -lgmp -lmpfr
 pcl_LIBS = -lpcl_common -lpcl_kdtree -lpcl_search -lpcl_surface -lpcl_features
 RENDER_glx_LIBS = -lGL -lGLEW -lopencv_highgui -lX11
@@ -42,7 +42,7 @@ shaders.hpp: pack_shaders.awk shader.vert shader.frag
 
 test: recon
 	rm frame*.png || true
-	./recon ../test/koberec-.yaml -v
+	./recon tracks/koberec-.yaml -v
 
 test_alpha_shapes: alpha_shapes.cpp
 	${CXX} ${CXXFLAGS} alpha_shapes.cpp -frounding-math -O2 ${cgal_LIBS} -lopencv_core -DTEST_BUILD -o test_alpha_shapes
@@ -60,7 +60,7 @@ test_flow: flow.cpp
 	${CXX} ${CXXFLAGS} flow.cpp -DTEST_BUILD -g ${opencv_LIBS} -o test_flow
 
 test_glx: render_glx.cpp shaders.hpp
-	${CXX} ${CXXFLAGS} render_glx.cpp ${RENDER_glx_LIBS} -lopencv_core -lopencv_imgproc -lopencv_highgui -DTEST_BUILD -o glx
+	${CXX} ${CXXFLAGS} render_glx.cpp ${RENDER_glx_LIBS} -lopencv_core -lopencv_imgproc -lopencv_highgui -lopencv_imgcodecs -DTEST_BUILD -o glx
 	./glx
 
 clean:

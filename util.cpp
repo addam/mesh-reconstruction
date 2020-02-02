@@ -43,9 +43,9 @@ Mat extractCameraCenter(const Mat camera)
 // check if all four nearest pixels are defined in the image (a depth map), so that bilinear interpolation can be directly performed
 bool goodSample(const Mat image, const float x, const float y)
 {
-	if (x < 0 || x > image.cols-1 || y < 0 || y > image.rows-1)
-		return false;
 	int ix = x, iy = y;
+	if (ix <= 0 || ix >= image.cols-1 || iy <= 0 || iy >= image.rows-1)
+		return false;
 	return (image.at<float>(iy,ix) != backgroundDepth &&
 	        image.at<float>(iy,ix+1) != backgroundDepth &&
 	        image.at<float>(iy+1,ix) != backgroundDepth &&

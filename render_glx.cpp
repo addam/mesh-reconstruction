@@ -7,17 +7,18 @@
 
 //sets the variables vertexShaderSources, fragmentShaderSources
 #include "shaders.hpp"
+	#include <iostream>
 
 #ifdef TEST_BUILD
 	#include <cstdio>
 	#include <cstdlib>
 	#include <string>
-	#include <iostream>
 	#include <fstream>
 	
 	#include <opencv2/core/core.hpp>
 	#include <opencv2/highgui/highgui.hpp>
 	#include <opencv2/imgproc/imgproc.hpp>
+	#include <opencv2/imgcodecs.hpp>
 	typedef cv::Mat Mat;
 	class Render {};
 	class Heuristic {public: cv::Size renderSize(){return cv::Size(0,0);};};
@@ -40,7 +41,7 @@ class RenderGLX: public Render {
 		~RenderGLX();
 		virtual void loadMesh(const Mesh mesh);
 		virtual Mat projected(const Mat camera, const Mat frame, const Mat projector);
-		virtual Mat depth(const Mat camera);
+		virtual Mat depth(const Mat camera) const;
 	protected:
 		static int instanceCount;
 		GLuint programID, mainMatrixID, sideMatrixID, textureSamplerID, shadowSamplerID, vertexbuffer, vertexArrayID, imgw, imgh;
@@ -105,7 +106,7 @@ GLuint LoadShaders(){
 	if (InfoLogLength > 1){
 		std::string VertexShaderErrorMessage(InfoLogLength+1, 0);
 		glGetShaderInfoLog(VertexShaderID, InfoLogLength, NULL, &VertexShaderErrorMessage[0]);
-		std::cerr << VertexShaderErrorMessage;
+		std::cerr << "Vertex shader: " << VertexShaderErrorMessage;
 	}
 	#endif
 
@@ -120,7 +121,7 @@ GLuint LoadShaders(){
 	if (InfoLogLength > 1){
 		std::string FragmentShaderErrorMessage(InfoLogLength+1, 0);
 		glGetShaderInfoLog(FragmentShaderID, InfoLogLength, NULL, &FragmentShaderErrorMessage[0]);
-		std::cerr << FragmentShaderErrorMessage;
+		std::cerr << "Fragment shader: " << FragmentShaderErrorMessage;
 	}
 	#endif
 
@@ -365,7 +366,7 @@ Mat RenderGLX::projected(const Mat camera, const Mat frame, const Mat projector)
 	return result;
 }	
 
-Mat RenderGLX::depth(const Mat camera) {
+Mat RenderGLX::depth(const Mat camera) const {
 	glClear(GL_DEPTH_BUFFER_BIT);
 
 	// render without using any texture nor projector
@@ -419,13 +420,13 @@ Mat sideMVP(cv::Matx44f(-1.831691861152649, -1.1502554416656494, -0.327068448066
 		cv::Scalar color = (pointZ <= 1 && pointZ >= -1) ? cv::Scalar(128*(1-pointZ), 128*(pointZ+1), 0) : cv::Scalar(0, 0, 255);
 		cv::circle(frame, cv::Point(frame.cols*(0.5 + pointX*0.5), frame.rows * (0.5 - pointY*0.5)), 3, color, -1, 8);
 	}
-	cv::imwrite("projected.png", frame);
+	cv::imwrite("test/out-projected.png", frame);
 	Mat depth = r.depth(MVP);
 	double min, max;
 	minMaxIdx(depth, &min, &max);
 	if (min != max)
 		depth = 255 * (depth - min) / (max - min);
-	cv::imwrite("depth.png", depth);
+	cv::imwrite("test/out-depth.png", depth);
 	std::cout << "Depth min: " << min << ", max: " << max << std::endl;
 	return 0;
 }

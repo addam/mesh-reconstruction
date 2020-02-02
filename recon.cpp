@@ -43,7 +43,7 @@ int main(int argc, char ** argv) {
 
 		// choose the bundles of cameras with each containing one main camera and some number of side cameras 
 		logprint(config, 1, "Choosing cameras...\n");
-		int cameraCount = hint.chooseCameras(mesh, config.allCameras());
+		int cameraCount = hint.chooseCameras(mesh, config.allCameras(), *render);
 		if (cameraCount == 0) {
 			printf(" Heuristic has chosen no cameras, which is an error. However, we have got nothing more to do.\n");
 			exit(1);
